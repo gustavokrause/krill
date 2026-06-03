@@ -14,10 +14,12 @@ import {
   Circle,
   Code2,
   GitMerge,
+  Info,
   Pencil,
   Upload,
   type LucideIcon,
 } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 
 const STAGE_ICON: Record<keyof StageEnabled, LucideIcon> = {
   todo_picker: Circle,
@@ -343,6 +345,17 @@ export function Settings({ initial }: { initial: GlobalConfig }) {
               id="max-stage-duration"
               title="Max stage duration"
               description="Stuck-task threshold per stage. Keep above claim_ttl to allow retries before flagging stuck."
+              meta={
+                <Tooltip
+                  side="left"
+                  align="start"
+                  contentClassName="max-w-[280px]"
+                  title="How max stage duration works"
+                  description="Total time allowed in a stage across all attempts. Once exceeded the task is flagged stuck in the UI. Must be greater than claim_ttl — if not, the first timeout triggers the stuck flag before a retry is possible. Rule of thumb: set to 2× claim_ttl minimum."
+                >
+                  <Info size={14} className="text-text-3 cursor-help mt-0.5" />
+                </Tooltip>
+              }
             >
               <dl className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {Object.entries(config.max_stage_duration).map(([k, v]) => {
@@ -390,6 +403,17 @@ export function Settings({ initial }: { initial: GlobalConfig }) {
               id="claim-ttl"
               title="Claim TTL"
               description="Lease duration per stage in seconds. Runner kills Claude 30s before expiry to avoid double-claim."
+              meta={
+                <Tooltip
+                  side="left"
+                  align="start"
+                  contentClassName="max-w-[280px]"
+                  title="How claim TTL works"
+                  description="Sets how long a worker holds the task. The runner kills Claude 30s early so the claim is still live when the process exits, preventing another worker from grabbing it mid-run. Increase if Claude consistently times out — then also increase max_stage_duration to at least 2× this value."
+                >
+                  <Info size={14} className="text-text-3 cursor-help mt-0.5" />
+                </Tooltip>
+              }
             >
               <dl className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {Object.entries(config.claim_ttl).map(([k, v]) => (
