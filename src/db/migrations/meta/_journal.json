@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1780319726835,
+      "tag": "0000_complex_toxin",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1780445893885,
+      "tag": "0001_publishing_solve_conflicts",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1780446883809,
+      "tag": "0002_solve_conflicts_default_false",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1780456126369,
+      "tag": "0003_unify_review_states",
+      "breakpoints": true
+    }
+  ]
+}

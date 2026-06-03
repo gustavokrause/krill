@@ -1,0 +1,372 @@
+import { randomUUID } from "node:crypto";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
+import { eq } from "drizzle-orm";
+import { db } from "@/db/client";
+import { comments, globalConfig, tasks, type TaskStatus } from "@/db/schema";
+import { getRunner } from "@/claude";
+import { issueToken, revokeToken } from "@/claude/mcp-auth";
+import {
+  abortMerge,
+  commitMerge,
+  ensurePr,
+  mergeOriginInto,
+  pushMerge,
+  resetWorktreeToOriginBranch,
+} from "@/git";
+import { resolveProjectPath } from "@/lib/api/util";
+import { broadcast } from "@/lib/sse";
+import { claim } from "../claim";
+import { applyTransitionSideEffects } from "../cleanup";
+import { countAiAutoActions, MANUAL_AI_COMMENT_PREFIX } from "../loop-brake";
+import { releaseClaim, transitionStatus } from "../transition";
+import { now } from "../types";
+import {
+  getBaseUrl,
+  getClaimTtl,
+  getProject,
+  loadPrompt,
+} from "./context";
+
+function getMaxAiDeclineCycles(): number {
+  const row = db
+    .select({ n: globalConfig.max_ai_decline_cycles })
+    .from(globalConfig)
+    .where(eq(globalConfig.id, 1))
+    .get();
+  return row?.n ?? 3;
+}
+
+function isSolveConflictsEnabled(): boolean {
+  const row = db
+    .select({ v: globalConfig.publishing_solve_conflicts })
+    .from(globalConfig)
+    .where(eq(globalConfig.id, 1))
+    .get();
+  return row?.v ?? true;
+}
+
+export function appendAiComment(
+  taskId: string,
+  text: string,
+  stage: TaskStatus = "PUBLISHING",
+): void {
+  const inserted = db
+    .insert(comments)
+    .values({
+      id: randomUUID(),
+      task_id: taskId,
+      at: now(),
+      stage,
+      author: "ai",
+      text,
+    })
+    .returning()
+    .all();
+  db.update(tasks)
+    .set({ updated_at: now() })
+    .where(eq(tasks.id, taskId))
+    .run();
+  if (inserted[0]) broadcast({ type: "comment.appended", comment: inserted[0] });
+}
+
+export async function runPublishing(workerId: string): Promise<string | null> {
+  const ttl = getClaimTtl("publishing");
+  const task = claim({ stage: "publishing", workerId, ttlSeconds: ttl });
+  if (!task) return null;
+
+  const project = getProject(task.project_id);
+
+  try {
+    if (project.has_repo) {
+      await publishRepo(task.id, workerId, ttl);
+    } else {
+      await publishWorkspace(task.id);
+    }
+    return task.id;
+  } catch (err) {
+    releaseClaim(task.id, workerId);
+    throw err;
+  }
+}
+
+async function publishRepo(
+  taskId: string,
+  workerId: string,
+  ttl: number,
+): Promise<void> {
+  const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
+  const project = getProject(task.project_id);
+  if (!task.worktree_path || !task.branch) {
+    releaseClaim(taskId, workerId);
+    throw new Error(`task ${taskId} missing worktree/branch in PUBLISHING`);
+  }
+
+  // PR-first per OVERVIEW.md: open the PR before any merge attempt so the
+  // human always has a tangible artifact to look at, even if the merge
+  // fails repeatedly.
+  const pr = await ensurePr({
+    cwd: task.worktree_path,
+    base: project.default_branch,
+    head: task.branch,
+    title: `${task.id}: ${task.name}`,
+    body: prBody(task.id, task.plan, task.checklist),
+  });
+  if (task.delivery_url !== pr.url) {
+    db.update(tasks)
+      .set({ delivery_url: pr.url, updated_at: now() })
+      .where(eq(tasks.id, task.id))
+      .run();
+  }
+
+  // Idempotent sync — picks up any human-side resolution pushed to GitHub
+  // since the last tick. No-op when already in sync.
+  await resetWorktreeToOriginBranch(task.worktree_path, task.branch);
+
+  const result = await mergeOriginInto(
+    task.worktree_path,
+    project.default_branch,
+  );
+
+  if (result.ok) {
+    await pushMerge(task.worktree_path, task.branch);
+    const moved = transitionStatus({
+      taskId: task.id,
+      from: "PUBLISHING",
+      to: "NEEDS_REVIEW",
+      pendingReviewKind: "deliverable",
+    });
+    if (moved) {
+      await applyTransitionSideEffects(task.id, "PUBLISHING", "NEEDS_REVIEW");
+    } else {
+      releaseClaim(taskId, workerId);
+    }
+    return;
+  }
+
+  // Conflict path — gated by {publishing_solve_conflicts}.
+  const conflictedSummary = result.conflictedFiles.join(", ");
+  appendAiComment(
+    task.id,
+    `merge-into conflict: ${conflictedSummary}`,
+    "NEEDS_REVIEW",
+  );
+
+  if (!isSolveConflictsEnabled()) {
+    await routeConflictResolverDisabled({
+      taskId: task.id,
+      workerId,
+      worktreePath: task.worktree_path,
+      conflictedSummary,
+    });
+    return;
+  }
+
+  const resolved = await attemptAiConflictResolve(task.id, ttl);
+
+  if (resolved) {
+    try {
+      await commitMerge(task.worktree_path, `merge origin/${project.default_branch} into ${task.branch}`);
+      await pushMerge(task.worktree_path, task.branch);
+      const moved = transitionStatus({
+        taskId: task.id,
+        from: "PUBLISHING",
+        to: "NEEDS_REVIEW",
+        pendingReviewKind: "deliverable",
+      });
+      if (moved) {
+        await applyTransitionSideEffects(task.id, "PUBLISHING", "NEEDS_REVIEW");
+      } else {
+        releaseClaim(taskId, workerId);
+      }
+      return;
+    } catch (err) {
+      appendAiComment(
+        task.id,
+        `conflict commit failed: ${(err as Error).message}`,
+      );
+      await abortMerge(task.worktree_path);
+    }
+  } else {
+    await abortMerge(task.worktree_path);
+  }
+
+  // Resolution failed — apply brake.
+  appendAiComment(
+    task.id,
+    `conflict resolution failed: ${conflictedSummary}`,
+    "NEEDS_REVIEW",
+  );
+
+  const max = getMaxAiDeclineCycles();
+  const aiActions = countAiAutoActions(task.id);
+  if (aiActions >= max) {
+    appendAiComment(
+      task.id,
+      "max AI decline cycles reached — deferring to human (PR already exists)",
+      "NEEDS_REVIEW",
+    );
+    const moved = transitionStatus({
+      taskId: task.id,
+      from: "PUBLISHING",
+      to: "NEEDS_REVIEW",
+      pendingReviewKind: "conflict",
+    });
+    if (moved) {
+      await applyTransitionSideEffects(task.id, "PUBLISHING", "NEEDS_REVIEW");
+    } else {
+      releaseClaim(taskId, workerId);
+    }
+    return;
+  }
+
+  // Brake not yet tripped — release claim, next tick retries.
+  releaseClaim(taskId, workerId);
+}
+
+export async function routeConflictResolverDisabled(opts: {
+  taskId: string;
+  workerId: string;
+  worktreePath: string;
+  conflictedSummary: string;
+}): Promise<void> {
+  appendAiComment(
+    opts.taskId,
+    `conflict resolver disabled — resolve in GitHub then click Retry PUBLISHING, or Solve with Sonnet, or send back to IMPLEMENTING for a redo: ${opts.conflictedSummary}`,
+    "NEEDS_REVIEW",
+  );
+  try {
+    await abortMerge(opts.worktreePath);
+  } catch {
+    // Worktree may not exist in tests, or merge was never started — non-fatal.
+  }
+  const moved = transitionStatus({
+    taskId: opts.taskId,
+    from: "PUBLISHING",
+    to: "NEEDS_REVIEW",
+    pendingReviewKind: "conflict",
+  });
+  if (moved) {
+    await applyTransitionSideEffects(opts.taskId, "PUBLISHING", "NEEDS_REVIEW");
+  } else {
+    releaseClaim(opts.taskId, opts.workerId);
+  }
+}
+
+export async function attemptAiConflictResolve(
+  taskId: string,
+  ttl: number,
+  opts: { manual?: boolean } = {},
+): Promise<boolean> {
+  const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
+  const project = getProject(task.project_id);
+  if (!task.worktree_path) return false;
+
+  const token = issueToken(task.id, "publishing", ttl);
+  try {
+    await getRunner().run({
+      stage: "publishing",
+      task,
+      project,
+      prompt: loadPrompt("publishing-conflict.md"),
+      mcpToken: token,
+      baseUrl: getBaseUrl(),
+      cwd: task.worktree_path,
+      timeoutMs: ttl * 1000,
+    });
+    return true;
+  } catch (err) {
+    const prefix = opts.manual ? MANUAL_AI_COMMENT_PREFIX : "";
+    appendAiComment(
+      task.id,
+      `${prefix}ai conflict-resolve runner failed: ${(err as Error).message}`,
+      opts.manual ? "NEEDS_REVIEW" : "PUBLISHING",
+    );
+    return false;
+  } finally {
+    revokeToken(token);
+  }
+}
+
+async function publishWorkspace(taskId: string): Promise<void> {
+  const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
+  const project = getProject(task.project_id);
+
+  if (!task.workspace_path) {
+    throw new Error(`task ${taskId} missing workspace_path in PUBLISHING`);
+  }
+  const folder = resolveProjectPath(project.folder_path);
+  const workspace = task.workspace_path;
+  const explicit = new Set(task.affected_paths);
+
+  const moved: string[] = [];
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const abs = join(dir, name);
+      const st = statSync(abs);
+      if (st.isDirectory()) walk(abs);
+      else {
+        const rel = relative(workspace, abs).replaceAll("\\", "/");
+        const dest = resolve(folder, rel);
+        if (existsSync(dest) && !explicit.has(rel)) continue;
+        mkdirSync(dirname(dest), { recursive: true });
+        copyFileSync(abs, dest);
+        moved.push(rel);
+      }
+    }
+  };
+  walk(workspace);
+
+  rmSync(workspace, { recursive: true, force: true });
+
+  const root = task.affected_paths[0] ?? moved[0] ?? `.tasks/${task.id}`;
+  const delivery_url = `file://${resolve(folder, root)}`;
+  db.update(tasks)
+    .set({
+      delivery_url,
+      workspace_path: null,
+      updated_at: now(),
+    })
+    .where(eq(tasks.id, task.id))
+    .run();
+
+  const ok = transitionStatus({
+    taskId: task.id,
+    from: "PUBLISHING",
+    to: "NEEDS_REVIEW",
+    pendingReviewKind: "deliverable",
+  });
+  if (ok) {
+    await applyTransitionSideEffects(task.id, "PUBLISHING", "NEEDS_REVIEW");
+  }
+}
+
+function prBody(taskId: string, plan: string, checklist: string): string {
+  const implNotes = db
+    .select()
+    .from(comments)
+    .where(eq(comments.task_id, taskId))
+    .all()
+    .filter((c) => c.stage === "IMPLEMENTING")
+    .sort((a, b) => a.at - b.at)
+    .map((c) => `- (${c.author}) ${c.text}`)
+    .join("\n");
+
+  const parts = [
+    plan || "_no plan recorded_",
+    "",
+    "## Checklist (final state)",
+    checklist || "_no checklist recorded_",
+  ];
+  if (implNotes) {
+    parts.push("", "## Implementation notes", implNotes);
+  }
+  return parts.join("\n");
+}

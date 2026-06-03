@@ -1,0 +1,1 @@
+ALTER TABLE `global_config` ADD `publishing_solve_conflicts` integer DEFAULT true NOT NULL;
