@@ -96,8 +96,10 @@ export class RealClaudeRunner implements ClaudeRunner {
         if (stdout) console.log(`[claude:${input.stage}:${input.task.id}] stdout:\n${stdout.slice(0, 2000)}`);
         if (stderr) console.log(`[claude:${input.stage}:${input.task.id}] stderr:\n${stderr.slice(0, 2000)}`);
 
-        if (signal === "SIGTERM" || signal === "SIGKILL") {
-          rejectP(new TimeoutError(`claude killed by ${signal} after timeout`));
+        // 143 = 128+SIGTERM, 137 = 128+SIGKILL: process caught the signal and
+        // exited itself, so Node reports a numeric code with signal=null.
+        if (signal === "SIGTERM" || signal === "SIGKILL" || exitCode === 143 || exitCode === 137) {
+          rejectP(new TimeoutError(`claude killed by signal after timeout (exit ${exitCode ?? signal})`));
           return;
         }
 
