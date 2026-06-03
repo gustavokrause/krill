@@ -220,7 +220,7 @@ export type DecisionOutcome = "approve" | "decline";
 export function task_decide(
   ctx: McpAuthContext,
   outcome: DecisionOutcome,
-  reason?: string,
+  reason: string,
 ) {
   authorize(ctx, "task_decide");
   const task = loadTask(ctx.taskId);
@@ -232,9 +232,7 @@ export function task_decide(
   }
 
   if (outcome === "approve") {
-    if (reason) {
-      task_append_comment(ctx, "AI-REVIEW", `approve: ${reason}`);
-    }
+    task_append_comment(ctx, "AI-REVIEW", `approve: ${reason}`);
     const moved = transitionStatus({
       taskId: ctx.taskId,
       from: "AI-REVIEW",
@@ -245,8 +243,7 @@ export function task_decide(
   }
 
   // decline path — append reason and check brake
-  const text = reason ?? "decline";
-  task_append_comment(ctx, "AI-REVIEW", text);
+  task_append_comment(ctx, "AI-REVIEW", `decline: ${reason}`);
 
   const max = getMaxAiDeclineCycles();
   const count = countAiAutoActions(ctx.taskId);

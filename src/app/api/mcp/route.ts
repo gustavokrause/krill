@@ -140,7 +140,7 @@ function callTool(
     case "task_decide":
       return TOOL_REGISTRY.task_decide(
         ctx,
-        args as { outcome: "approve" | "decline"; reason?: string },
+        args as { outcome: "approve" | "decline"; reason: string },
       );
     default:
       throw new McpAuthError(`unknown tool ${name}`);

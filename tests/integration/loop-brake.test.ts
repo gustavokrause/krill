@@ -104,6 +104,6 @@ test("task_decide rejects approve outside AI-REVIEW", () => {
   const t = createTask(p, { name: "t1", status: "IMPLEMENTING" });
 
   assert.throws(() => {
-    task_decide(ctxFor(t.id), "approve");
+    task_decide(ctxFor(t.id), "approve", "looks good");
   }, /AI-REVIEW/);
 });
