@@ -342,7 +342,7 @@ export function Settings({ initial }: { initial: GlobalConfig }) {
             <Section
               id="max-stage-duration"
               title="Max stage duration"
-              description="Stuck-task threshold per stage. Beyond this, an unclaimed task is flagged stuck."
+              description="Stuck-task threshold per stage. Keep above claim_ttl to allow retries before flagging stuck."
             >
               <dl className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {Object.entries(config.max_stage_duration).map(([k, v]) => (
@@ -350,14 +350,27 @@ export function Settings({ initial }: { initial: GlobalConfig }) {
                     key={k}
                     className="rounded border border-border bg-surface-2 px-3 py-2"
                   >
-                    <dt className="font-mono text-[11px] text-text-2 truncate">
+                    <dt className="font-mono text-[11px] text-text-2 truncate mb-1">
                       {k}
                     </dt>
-                    <dd className="font-mono text-base font-semibold">
-                      {v}
-                      <span className="text-text-2 text-xs font-normal ml-0.5">
-                        s
-                      </span>
+                    <dd className="flex items-baseline gap-1">
+                      <input
+                        type="number"
+                        min={60}
+                        step={60}
+                        defaultValue={v}
+                        className="w-20 font-mono text-base font-semibold bg-transparent border-b border-border focus:border-accent focus:outline-none"
+                        onBlur={(e) => {
+                          const next = parseInt(e.currentTarget.value, 10);
+                          if (!isNaN(next) && next >= 60 && next !== v) {
+                            patch({ max_stage_duration: { [k]: next } }, `Max stage duration ${k} → ${next}s`);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") e.currentTarget.blur();
+                        }}
+                      />
+                      <span className="text-text-2 text-xs font-normal">s</span>
                     </dd>
                   </div>
                 ))}
