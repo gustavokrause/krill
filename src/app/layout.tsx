@@ -52,12 +52,12 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: SET_THEME_SCRIPT }} />
       </head>
-      <body className="font-sans bg-bg text-text antialiased min-h-screen flex flex-col">
+      <body className="font-sans bg-bg text-text antialiased h-screen flex flex-col overflow-hidden">
         <ServiceWorker />
         <ToastProvider>
           <TooltipProvider>
             <Nav />
-            <div className="flex-1 flex flex-col">{children}</div>
+            <div className="flex-1 flex flex-col min-h-0">{children}</div>
             {modal}
             <Footer lanUrls={lanUrls} />
           </TooltipProvider>
