@@ -100,6 +100,11 @@ export async function getPrState(
  * Merge the PR. Defaults to squash for clean default-branch history; pass
  * "merge" to preserve full commit graph. Idempotent: if the PR is already
  * MERGED (e.g., merged manually on GitHub), short-circuits without error.
+ *
+ * Branch deletion is intentionally NOT bundled here. `gh pr merge
+ * --delete-branch` fails when a worktree still references the branch
+ * (worktree is cleaned up later in applyTransitionSideEffects). Branch
+ * teardown lives in cleanup, sequenced after worktree removal.
  */
 export async function mergePr(
   repoCwd: string,
@@ -116,8 +121,31 @@ export async function mergePr(
   const flag = `--${strategy}`;
   const res = await execCmd(
     "gh",
-    ["pr", "merge", prUrl, flag, "--delete-branch"],
+    ["pr", "merge", prUrl, flag],
     { cwd: repoCwd },
   );
   throwIfFailed(res, `gh pr merge ${strategy}`);
+}
+
+/**
+ * Delete the remote branch on origin. Idempotent: succeeds silently when
+ * the branch is already gone (e.g., previous --delete-branch run, or a
+ * human deleted it on GitHub). Use on DONE cleanup after the worktree is
+ * removed and the local branch deleted.
+ */
+export async function deleteRemoteBranch(
+  repoCwd: string,
+  branch: string,
+): Promise<void> {
+  const res = await execCmd(
+    "git",
+    ["push", "origin", "--delete", branch],
+    { cwd: repoCwd },
+  );
+  if (res.exitCode === 0) return;
+  const stderr = res.stderr.toLowerCase();
+  if (stderr.includes("remote ref does not exist") || stderr.includes("unable to delete")) {
+    return;
+  }
+  throwIfFailed(res, "git push origin --delete");
 }
