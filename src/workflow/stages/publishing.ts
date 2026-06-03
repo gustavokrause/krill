@@ -17,6 +17,7 @@ import {
   abortMerge,
   commitMerge,
   ensurePr,
+  getPrState,
   mergeOriginInto,
   pushMerge,
   resetWorktreeToOriginBranch,
@@ -107,6 +108,27 @@ async function publishRepo(
   if (!task.worktree_path || !task.branch) {
     releaseClaim(taskId, workerId);
     throw new Error(`task ${taskId} missing worktree/branch in PUBLISHING`);
+  }
+
+  // If a PR was merged externally (e.g. tech lead squash-merged on GitHub),
+  // skip review gate and mark DONE directly — merged = approved.
+  if (task.delivery_url && /^https?:\/\//.test(task.delivery_url)) {
+    const prState = await getPrState(task.worktree_path, task.delivery_url);
+    if (prState === "MERGED") {
+      appendAiComment(task.id, "PR merged externally — marking DONE");
+      const moved = transitionStatus({
+        taskId: task.id,
+        from: "PUBLISHING",
+        to: "DONE",
+        endedAt: now(),
+      });
+      if (moved) {
+        await applyTransitionSideEffects(task.id, "PUBLISHING", "DONE");
+      } else {
+        releaseClaim(taskId, workerId);
+      }
+      return;
+    }
   }
 
   // PR-first per OVERVIEW.md: open the PR before any merge attempt so the

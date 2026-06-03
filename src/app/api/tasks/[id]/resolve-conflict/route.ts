@@ -131,6 +131,7 @@ async function runResolveInBackground(opts: {
     if (merge.ok) {
       // No conflict to resolve — clean merge, push and move on.
       await pushMerge(opts.worktreePath, opts.taskBranch);
+      appendManualAiComment(opts.taskId, "no conflict detected after sync — clean merge, resuming PUBLISHING");
       moveBackToPublishing(opts.taskId, opts.workerId);
       return;
     }
@@ -145,6 +146,7 @@ async function runResolveInBackground(opts: {
           `merge origin/${opts.defaultBranch} into ${opts.taskBranch}`,
         );
         await pushMerge(opts.worktreePath, opts.taskBranch);
+        appendManualAiComment(opts.taskId, `conflict resolved by Sonnet — merged origin/${opts.defaultBranch} into ${opts.taskBranch}, resuming PUBLISHING`);
         moveBackToPublishing(opts.taskId, opts.workerId);
         return;
       } catch (err) {

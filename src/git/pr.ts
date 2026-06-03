@@ -83,6 +83,19 @@ export async function addPrComment(
   throwIfFailed(res, "gh pr comment");
 }
 
+export async function getPrState(
+  repoCwd: string,
+  prUrl: string,
+): Promise<string | null> {
+  const res = await execCmd(
+    "gh",
+    ["pr", "view", prUrl, "--json", "state", "--jq", ".state"],
+    { cwd: repoCwd },
+  );
+  if (res.exitCode !== 0) return null;
+  return res.stdout.trim() || null;
+}
+
 /**
  * Merge the PR. Defaults to squash for clean default-branch history; pass
  * "merge" to preserve full commit graph. Idempotent: if the PR is already

@@ -25,7 +25,9 @@ import {
   ArrowRight,
   Check,
   CornerUpLeft,
-  ExternalLink,
+  GitMerge,
+  GitPullRequest,
+  Loader2,
   RotateCcw,
   Sparkles,
   X,
@@ -300,8 +302,17 @@ export function TaskDetail({
     config.publishing_solve_conflicts,
   ]);
 
+  // True if Sonnet is actively solving — survives navigation by checking
+  // claimed_until from DB, not just ephemeral local state.
+  const isSolving =
+    resolving ||
+    (task.status === "NEEDS_REVIEW" &&
+      task.pending_review_kind === "conflict" &&
+      task.claimed_until !== null &&
+      task.claimed_until > Math.floor(Date.now() / 1000));
+
   const resolveConflict = useCallback(async () => {
-    if (resolving || busy) return;
+    if (isSolving || busy) return;
     setResolving(true);
     try {
       const next = await api.resolveConflict(task.id);
@@ -318,7 +329,7 @@ export function TaskDetail({
         description: (err as Error).message,
       });
     }
-  }, [busy, resolving, task.id, toast]);
+  }, [busy, isSolving, task.id, toast]);
 
   return (
     <main className="flex-1 px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
@@ -370,10 +381,22 @@ export function TaskDetail({
                   href={task.delivery_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mt-3 inline-flex items-center gap-1.5 text-sm font-mono text-info hover:underline underline-offset-2 break-all"
+                  className="mt-3 inline-flex items-center gap-1.5 text-sm font-mono hover:underline underline-offset-2 break-all"
                 >
-                  <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                  {task.delivery_url}
+                  {task.status === "DONE" ? (
+                    <GitMerge className="h-3.5 w-3.5 shrink-0 text-purple-500" />
+                  ) : task.pending_review_kind === "conflict" ? (
+                    <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-danger" />
+                  ) : (
+                    <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-success" />
+                  )}
+                  <span className={
+                    task.status === "DONE" ? "text-purple-500" :
+                    task.pending_review_kind === "conflict" ? "text-danger" :
+                    "text-info"
+                  }>
+                    {task.delivery_url}
+                  </span>
                 </a>
               ) : null}
             </header>
@@ -510,9 +533,9 @@ export function TaskDetail({
                       href={task.delivery_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="mt-2 inline-flex items-center gap-1.5 text-xs font-mono text-info hover:underline underline-offset-2"
+                      className="mt-2 inline-flex items-center gap-1.5 text-xs font-mono text-danger hover:underline underline-offset-2"
                     >
-                      <ExternalLink className="h-3 w-3 shrink-0" />
+                      <GitPullRequest className="h-3 w-3 shrink-0" />
                       Open PR
                     </a>
                   ) : null}
@@ -520,7 +543,7 @@ export function TaskDetail({
                     <button
                       type="button"
                       onClick={resolveConflict}
-                      disabled={resolving || busy}
+                      disabled={isSolving || busy}
                       className={cn(
                         "mt-3 w-full flex items-center gap-2.5 h-9 px-3 rounded-md border text-sm font-medium",
                         "border-primary/30 bg-primary/5 text-primary hover:bg-primary/10",
@@ -528,9 +551,13 @@ export function TaskDetail({
                         "focus:outline-none focus-visible:ring-1 focus-visible:ring-primary",
                       )}
                     >
-                      <Sparkles className="h-4 w-4 shrink-0" />
+                      {isSolving ? (
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-4 w-4 shrink-0" />
+                      )}
                       <span className="flex-1 text-left">
-                        {resolving ? "Solving…" : "Solve with Sonnet"}
+                        {isSolving ? "Sonnet is solving…" : "Solve with Sonnet"}
                       </span>
                     </button>
                   ) : null}
@@ -566,7 +593,7 @@ export function TaskDetail({
                             key={s}
                             type="button"
                             onClick={() => transitionTo(s)}
-                            disabled={busy || resolving}
+                            disabled={busy || isSolving}
                             className={cn(
                               "w-full flex items-center gap-2.5 h-9 px-3 rounded-md border text-sm font-medium transition-colors",
                               "disabled:opacity-50 disabled:cursor-not-allowed",
