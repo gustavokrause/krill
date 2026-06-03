@@ -345,7 +345,10 @@ export function Settings({ initial }: { initial: GlobalConfig }) {
               description="Stuck-task threshold per stage. Keep above claim_ttl to allow retries before flagging stuck."
             >
               <dl className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {Object.entries(config.max_stage_duration).map(([k, v]) => (
+                {Object.entries(config.max_stage_duration).map(([k, v]) => {
+                  const claimTtl = (config.claim_ttl as Record<string, number>)[k];
+                  const tooLow = claimTtl != null && v <= claimTtl;
+                  return (
                   <div
                     key={k}
                     className="rounded border border-border bg-surface-2 px-3 py-2"
@@ -372,8 +375,14 @@ export function Settings({ initial }: { initial: GlobalConfig }) {
                       />
                       <span className="text-text-2 text-xs font-normal">s</span>
                     </dd>
+                    {claimTtl != null && (
+                      <p className={`font-mono text-[10px] mt-1 ${tooLow ? "text-warning" : "text-text-3"}`}>
+                        {tooLow ? `⚠ below claim_ttl (${claimTtl}s)` : `claim_ttl ${claimTtl}s`}
+                      </p>
+                    )}
                   </div>
-                ))}
+                  );
+                })}
               </dl>
             </Section>
 
@@ -410,6 +419,9 @@ export function Settings({ initial }: { initial: GlobalConfig }) {
                       />
                       <span className="text-text-2 text-xs font-normal">s</span>
                     </dd>
+                    <p className="font-mono text-[10px] text-text-3 mt-1">
+                      kills at {Math.max(v - 30, 30)}s
+                    </p>
                   </div>
                 ))}
               </dl>
