@@ -31,6 +31,7 @@ import { now } from "../types";
 import {
   getBaseUrl,
   getClaimTtl,
+  getRunnerTimeoutMs,
   getProject,
   loadPrompt,
 } from "./context";
@@ -279,7 +280,7 @@ export async function attemptAiConflictResolve(
       mcpToken: token,
       baseUrl: getBaseUrl(),
       cwd: task.worktree_path,
-      timeoutMs: ttl * 1000,
+      timeoutMs: getRunnerTimeoutMs(ttl),
     });
     return true;
   } catch (err) {

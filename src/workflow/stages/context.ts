@@ -32,6 +32,13 @@ export function getClaimTtl(stage: Stage): number {
   return m[key] ?? 300;
 }
 
+/** Runner timeout: 30s less than claim TTL so the process is killed before
+ *  the claim expires, preventing a second worker from claiming the same task
+ *  mid-run. Floor of 30s guards against very short TTL configs. */
+export function getRunnerTimeoutMs(ttl: number): number {
+  return Math.max((ttl - 30) * 1000, 30_000);
+}
+
 export function loadPrompt(name: string): string {
   const path = resolve(process.cwd(), "src/claude/prompts", name);
   return readFileSync(path, "utf8");

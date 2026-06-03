@@ -10,6 +10,7 @@ import {
   getBaseUrl,
   getClaimTtl,
   getProject,
+  getRunnerTimeoutMs,
   pickPromptFor,
 } from "./context";
 
@@ -53,7 +54,7 @@ export async function runPlanning(workerId: string): Promise<string | null> {
         mcpToken: token,
         baseUrl: getBaseUrl(),
         cwd,
-        timeoutMs: ttl * 1000,
+        timeoutMs: getRunnerTimeoutMs(ttl),
       });
     } catch (err) {
       if (err instanceof TimeoutError) {
