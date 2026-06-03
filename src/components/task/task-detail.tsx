@@ -533,7 +533,10 @@ export function TaskDetail({
                       href={task.delivery_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="mt-2 inline-flex items-center gap-1.5 text-xs font-mono text-danger hover:underline underline-offset-2"
+                      className={cn(
+                        "mt-2 inline-flex items-center gap-1.5 text-xs font-mono hover:underline underline-offset-2",
+                        reviewContext.kind === "conflict" ? "text-danger" : "text-success",
+                      )}
                     >
                       <GitPullRequest className="h-3 w-3 shrink-0" />
                       Open PR
