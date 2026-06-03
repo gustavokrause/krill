@@ -4,10 +4,12 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { tasks } from "@/db/schema";
 import { getRunner } from "@/claude";
+import { TimeoutError } from "@/claude/errors";
 import { issueToken, revokeToken } from "@/claude/mcp-auth";
 import { commitAll, diffNamesAgainstBase, pushBranch } from "@/git";
 import { claim } from "../claim";
 import { applyTransitionSideEffects } from "../cleanup";
+import { appendAiComment } from "../comment";
 import { releaseClaim, transitionStatus } from "../transition";
 import { now } from "../types";
 import {
@@ -46,16 +48,24 @@ export async function runImplementing(
   const token = issueToken(task.id, "implementing", ttl);
   try {
     const prompt = pickPromptFor("implementing", task);
-    await getRunner().run({
-      stage: "implementing",
-      task,
-      project,
-      prompt,
-      mcpToken: token,
-      baseUrl: getBaseUrl(),
-      cwd,
-      timeoutMs: ttl * 1000,
-    });
+    try {
+      await getRunner().run({
+        stage: "implementing",
+        task,
+        project,
+        prompt,
+        mcpToken: token,
+        baseUrl: getBaseUrl(),
+        cwd,
+        timeoutMs: ttl * 1000,
+      });
+    } catch (err) {
+      if (err instanceof TimeoutError) {
+        appendAiComment(task.id, `implementing timed out after ${ttl}s — will retry`, "IMPLEMENTING");
+        releaseClaim(task.id, workerId);
+      }
+      throw err;
+    }
 
     if (project.has_repo && task.worktree_path && task.branch) {
       const message = `${task.id}: ${task.name}`;

@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import {
   copyFileSync,
   existsSync,
@@ -10,7 +9,7 @@ import {
 import { dirname, join, relative, resolve } from "node:path";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { comments, globalConfig, tasks, type TaskStatus } from "@/db/schema";
+import { comments, globalConfig, tasks } from "@/db/schema";
 import { getRunner } from "@/claude";
 import { issueToken, revokeToken } from "@/claude/mcp-auth";
 import {
@@ -23,9 +22,9 @@ import {
   resetWorktreeToOriginBranch,
 } from "@/git";
 import { resolveProjectPath } from "@/lib/api/util";
-import { broadcast } from "@/lib/sse";
 import { claim } from "../claim";
 import { applyTransitionSideEffects } from "../cleanup";
+import { appendAiComment } from "../comment";
 import { countAiAutoActions, MANUAL_AI_COMMENT_PREFIX } from "../loop-brake";
 import { releaseClaim, transitionStatus } from "../transition";
 import { now } from "../types";
@@ -35,6 +34,8 @@ import {
   getProject,
   loadPrompt,
 } from "./context";
+
+export { appendAiComment };
 
 function getMaxAiDeclineCycles(): number {
   const row = db
@@ -54,29 +55,6 @@ function isSolveConflictsEnabled(): boolean {
   return row?.v ?? true;
 }
 
-export function appendAiComment(
-  taskId: string,
-  text: string,
-  stage: TaskStatus = "PUBLISHING",
-): void {
-  const inserted = db
-    .insert(comments)
-    .values({
-      id: randomUUID(),
-      task_id: taskId,
-      at: now(),
-      stage,
-      author: "ai",
-      text,
-    })
-    .returning()
-    .all();
-  db.update(tasks)
-    .set({ updated_at: now() })
-    .where(eq(tasks.id, taskId))
-    .run();
-  if (inserted[0]) broadcast({ type: "comment.appended", comment: inserted[0] });
-}
 
 export async function runPublishing(workerId: string): Promise<string | null> {
   const ttl = getClaimTtl("publishing");

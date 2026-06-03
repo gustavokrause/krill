@@ -1,7 +1,9 @@
 import { getRunner } from "@/claude";
+import { TimeoutError } from "@/claude/errors";
 import { issueToken, revokeToken } from "@/claude/mcp-auth";
 import { claim } from "../claim";
 import { applyTransitionSideEffects } from "../cleanup";
+import { appendAiComment } from "../comment";
 import { releaseClaim, transitionStatus } from "../transition";
 import {
   ensureWorkspace,
@@ -42,16 +44,24 @@ export async function runPlanning(workerId: string): Promise<string | null> {
   try {
     const cwd = task.worktree_path ?? task.workspace_path!;
     const prompt = pickPromptFor("planning", task);
-    await getRunner().run({
-      stage: "planning",
-      task,
-      project,
-      prompt,
-      mcpToken: token,
-      baseUrl: getBaseUrl(),
-      cwd,
-      timeoutMs: ttl * 1000,
-    });
+    try {
+      await getRunner().run({
+        stage: "planning",
+        task,
+        project,
+        prompt,
+        mcpToken: token,
+        baseUrl: getBaseUrl(),
+        cwd,
+        timeoutMs: ttl * 1000,
+      });
+    } catch (err) {
+      if (err instanceof TimeoutError) {
+        appendAiComment(task.id, `planning timed out after ${ttl}s — will retry`, "PLANNING");
+        releaseClaim(task.id, workerId);
+      }
+      throw err;
+    }
 
     const target: "IMPLEMENTING" | "NEEDS_REVIEW" = task.skip_plan_review
       ? "IMPLEMENTING"

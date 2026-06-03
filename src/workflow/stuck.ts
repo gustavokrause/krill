@@ -1,4 +1,4 @@
-import { and, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, inArray, lt, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   STUCK_WATCHED_STATUSES,
@@ -49,7 +49,6 @@ export function findStuckTasks(): StuckTask[] {
     .where(
       and(
         inArray(tasks.status, STUCK_WATCHED_STATUSES),
-        isNull(tasks.claimed_until),
         lt(tasks.stage_entered_at, ts),
       ),
     )

@@ -1,6 +1,8 @@
 import { getRunner } from "@/claude";
+import { TimeoutError } from "@/claude/errors";
 import { issueToken, revokeToken } from "@/claude/mcp-auth";
 import { claim } from "../claim";
+import { appendAiComment } from "../comment";
 import { releaseClaim } from "../transition";
 import {
   getBaseUrl,
@@ -30,16 +32,24 @@ export async function runAiReview(workerId: string): Promise<string | null> {
   const token = issueToken(task.id, "ai_review", ttl);
   try {
     const prompt = pickPromptFor("ai_review", task);
-    await getRunner().run({
-      stage: "ai_review",
-      task,
-      project,
-      prompt,
-      mcpToken: token,
-      baseUrl: getBaseUrl(),
-      cwd,
-      timeoutMs: ttl * 1000,
-    });
+    try {
+      await getRunner().run({
+        stage: "ai_review",
+        task,
+        project,
+        prompt,
+        mcpToken: token,
+        baseUrl: getBaseUrl(),
+        cwd,
+        timeoutMs: ttl * 1000,
+      });
+    } catch (err) {
+      if (err instanceof TimeoutError) {
+        appendAiComment(task.id, `ai-review timed out after ${ttl}s — will retry`, "AI-REVIEW");
+      }
+      releaseClaim(task.id, workerId);
+      throw err;
+    }
     // If task_decide was not invoked, ensure the claim is released so the
     // next tick can re-enter.
     releaseClaim(task.id, workerId);
