@@ -102,7 +102,8 @@ export function TaskForm(props: Mode) {
           skip_ai_review: skipAiReview,
         });
         toast.push({ variant: "success", title: "Task updated" });
-        router.push(`/tasks/${props.task.id}`);
+        router.back();
+        router.refresh();
       }
     } catch (err) {
       toast.push({
