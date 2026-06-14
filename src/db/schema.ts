@@ -149,6 +149,11 @@ export const projects = sqliteTable(
     create_pr: integer("create_pr", { mode: "boolean" }),
     push_remote: integer("push_remote", { mode: "boolean" }),
     merge_to_main: integer("merge_to_main", { mode: "boolean" }),
+    // Auto-finish permission (A2). Must be explicitly enabled per project for a
+    // task's auto_publish to be honored — the project-side half of the gate.
+    allow_auto_finish: integer("allow_auto_finish", { mode: "boolean" })
+      .notNull()
+      .default(false),
     task_counter: integer("task_counter").notNull().default(0),
     created_at: integer("created_at").notNull(),
     updated_at: integer("updated_at").notNull(),
@@ -200,6 +205,12 @@ export const tasks = sqliteTable(
       .notNull()
       .default(false),
     skip_ai_review: integer("skip_ai_review", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    // Auto-finish (A2): skip the deliverable gate + auto-merge. Honored only
+    // when the project also sets allow_auto_finish. Set by baleia for
+    // low-risk, non-self-edit tasks under the aggressive dial. AI-review stays on.
+    auto_publish: integer("auto_publish", { mode: "boolean" })
       .notNull()
       .default(false),
     claimed_until: integer("claimed_until"),

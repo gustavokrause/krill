@@ -75,6 +75,7 @@ export async function POST(req: NextRequest) {
             skip_plan: body.skip_plan,
             skip_plan_review: body.skip_plan_review,
             skip_ai_review: body.skip_ai_review,
+            auto_publish: body.auto_publish,
             created_at: ts,
             stage_entered_at: ts,
             updated_at: ts,

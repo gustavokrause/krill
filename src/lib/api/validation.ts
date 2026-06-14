@@ -38,6 +38,7 @@ export const taskCreateSchema = z.object({
   skip_plan: z.boolean().default(false),
   skip_plan_review: z.boolean().default(false),
   skip_ai_review: z.boolean().default(false),
+  auto_publish: z.boolean().default(false),
 });
 
 export const taskPatchSchema = z.object({

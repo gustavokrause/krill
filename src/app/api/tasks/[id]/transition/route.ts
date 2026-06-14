@@ -3,16 +3,15 @@ import { eq } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/db/client";
 import { comments, projects, tasks } from "@/db/schema";
-import { addPrComment, mergePr, localMergeToMain } from "@/git";
+import { addPrComment } from "@/git";
 import {
   apiErrorResponse,
   invalidState,
   notFound,
 } from "@/lib/api/errors";
-import { resolveProjectPath } from "@/lib/api/util";
 import { taskTransitionSchema } from "@/lib/api/validation";
 import { broadcast } from "@/lib/sse";
-import { resolvePublishPolicy } from "@/workflow/publish-policy";
+import { finishMerge } from "@/workflow/finish";
 import { applyTransitionSideEffects } from "@/workflow/cleanup";
 import { transitionStatus } from "@/workflow/transition";
 import { now } from "@/workflow/types";
@@ -56,30 +55,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         .where(eq(projects.id, existing.project_id))
         .get();
       if (project?.has_repo) {
-        if (/^https?:\/\//.test(existing.delivery_url)) {
-          // remote project — merge the PR
-          try {
-            await mergePr(project.folder_path, existing.delivery_url, "squash");
-          } catch (err) {
-            invalidState(`pr merge failed: ${(err as Error).message}`);
-          }
-        } else if (
-          existing.delivery_url.startsWith("local:") &&
-          existing.branch
-        ) {
-          // remote-less project (A1) — merge the task branch into main locally
-          const policy = await resolvePublishPolicy(project);
-          if (policy.mergeToMain) {
-            try {
-              await localMergeToMain(
-                resolveProjectPath(project.folder_path),
-                existing.branch,
-                project.default_branch,
-              );
-            } catch (err) {
-              invalidState(`local merge failed: ${(err as Error).message}`);
-            }
-          }
+        try {
+          await finishMerge(existing, project);
+        } catch (err) {
+          invalidState(`merge failed: ${(err as Error).message}`);
         }
       }
     }

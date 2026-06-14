@@ -26,6 +26,7 @@ import { claim } from "../claim";
 import { applyTransitionSideEffects } from "../cleanup";
 import { appendAiComment } from "../comment";
 import { resolvePublishPolicy } from "../publish-policy";
+import { finishMerge, autoFinishEligible } from "../finish";
 import { countAiAutoActions, MANUAL_AI_COMMENT_PREFIX } from "../loop-brake";
 import { releaseClaim, transitionStatus } from "../transition";
 import { now } from "../types";
@@ -55,6 +56,45 @@ function isSolveConflictsEnabled(): boolean {
     .where(eq(globalConfig.id, 1))
     .get();
   return row?.v ?? true;
+}
+
+/**
+ * Deliverable routing (A2). If the task is auto-finish eligible (auto_publish +
+ * project.allow_auto_finish), merge to main and go straight to DONE — no human
+ * gate. Otherwise stop at NEEDS_REVIEW(deliverable). A failed auto-merge falls
+ * back to human review so work is never lost. Re-reads the task for a fresh
+ * delivery_url.
+ */
+async function deliverOrAutoFinish(
+  taskId: string,
+  project: Parameters<typeof finishMerge>[1],
+  workerId: string,
+): Promise<void> {
+  const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+  if (task && autoFinishEligible(task, project)) {
+    try {
+      await finishMerge(task, project);
+      appendAiComment(taskId, "auto-finished (auto_publish + allow_auto_finish) — merged to main, no human gate");
+      const moved = transitionStatus({ taskId, from: "PUBLISHING", to: "DONE", endedAt: now() });
+      if (moved) await applyTransitionSideEffects(taskId, "PUBLISHING", "DONE");
+      else releaseClaim(taskId, workerId);
+      return;
+    } catch (err) {
+      appendAiComment(
+        taskId,
+        `auto-finish merge failed, routing to deliverable review: ${(err as Error).message}`,
+        "NEEDS_REVIEW",
+      );
+    }
+  }
+  const moved = transitionStatus({
+    taskId,
+    from: "PUBLISHING",
+    to: "NEEDS_REVIEW",
+    pendingReviewKind: "deliverable",
+  });
+  if (moved) await applyTransitionSideEffects(taskId, "PUBLISHING", "NEEDS_REVIEW");
+  else releaseClaim(taskId, workerId);
 }
 
 
@@ -102,17 +142,7 @@ async function publishRepo(
         .where(eq(tasks.id, task.id))
         .run();
     }
-    const moved = transitionStatus({
-      taskId: task.id,
-      from: "PUBLISHING",
-      to: "NEEDS_REVIEW",
-      pendingReviewKind: "deliverable",
-    });
-    if (moved) {
-      await applyTransitionSideEffects(task.id, "PUBLISHING", "NEEDS_REVIEW");
-    } else {
-      releaseClaim(taskId, workerId);
-    }
+    await deliverOrAutoFinish(task.id, project, workerId);
     return;
   }
 
@@ -165,17 +195,7 @@ async function publishRepo(
 
   if (result.ok) {
     await pushMerge(task.worktree_path, task.branch);
-    const moved = transitionStatus({
-      taskId: task.id,
-      from: "PUBLISHING",
-      to: "NEEDS_REVIEW",
-      pendingReviewKind: "deliverable",
-    });
-    if (moved) {
-      await applyTransitionSideEffects(task.id, "PUBLISHING", "NEEDS_REVIEW");
-    } else {
-      releaseClaim(taskId, workerId);
-    }
+    await deliverOrAutoFinish(task.id, project, workerId);
     return;
   }
 
@@ -203,17 +223,7 @@ async function publishRepo(
     try {
       await commitMerge(task.worktree_path, `merge origin/${project.default_branch} into ${task.branch}`);
       await pushMerge(task.worktree_path, task.branch);
-      const moved = transitionStatus({
-        taskId: task.id,
-        from: "PUBLISHING",
-        to: "NEEDS_REVIEW",
-        pendingReviewKind: "deliverable",
-      });
-      if (moved) {
-        await applyTransitionSideEffects(task.id, "PUBLISHING", "NEEDS_REVIEW");
-      } else {
-        releaseClaim(taskId, workerId);
-      }
+      await deliverOrAutoFinish(task.id, project, workerId);
       return;
     } catch (err) {
       appendAiComment(
