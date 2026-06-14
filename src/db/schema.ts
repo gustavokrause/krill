@@ -144,6 +144,11 @@ export const projects = sqliteTable(
     default_branch: text("default_branch").notNull().default("main"),
     max_parallel_tasks: integer("max_parallel_tasks").notNull().default(1),
     paused: integer("paused", { mode: "boolean" }).notNull().default(false),
+    // Publish policy (A1). NULL = auto-detect from whether a git remote exists:
+    // remote -> PR flow; no remote -> local merge. Non-null overrides detection.
+    create_pr: integer("create_pr", { mode: "boolean" }),
+    push_remote: integer("push_remote", { mode: "boolean" }),
+    merge_to_main: integer("merge_to_main", { mode: "boolean" }),
     task_counter: integer("task_counter").notNull().default(0),
     created_at: integer("created_at").notNull(),
     updated_at: integer("updated_at").notNull(),

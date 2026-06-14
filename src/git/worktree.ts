@@ -36,13 +36,17 @@ export async function createWorktree(opts: WorktreeOpts): Promise<string> {
 
   const git: SimpleGit = simpleGit(repo);
 
-  // Refresh remote refs so the new branch forks off latest origin.
-  await git.fetch(["origin", opts.defaultBranch]);
-
   // Determine the base ref. Prefer origin/<default> when remote is wired,
-  // otherwise fall back to the local default branch HEAD.
+  // otherwise fall back to the local default branch HEAD (remote-less repos).
   const remotes = await git.getRemotes(true);
   const hasOrigin = remotes.some((r) => r.name === "origin");
+
+  // Refresh remote refs so the new branch forks off latest origin — only when
+  // a remote exists (a bare `git fetch origin` errors on remote-less repos).
+  if (hasOrigin) {
+    await git.fetch(["origin", opts.defaultBranch]);
+  }
+
   const base = hasOrigin
     ? `origin/${opts.defaultBranch}`
     : opts.defaultBranch;

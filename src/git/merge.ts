@@ -129,3 +129,42 @@ export async function pushMerge(
   const git = simpleGit(worktreePath);
   await git.push(["origin", branch]);
 }
+
+/**
+ * Local merge-to-main for remote-less projects (A1): merge the task branch
+ * INTO the default branch in the project's main checkout — no push, no PR.
+ * Requires the main repo on a clean default branch; aborts on conflict so a
+ * botched merge never leaves the live working tree dirty.
+ */
+export async function localMergeToMain(
+  repoPath: string,
+  branch: string,
+  defaultBranch: string,
+): Promise<void> {
+  const git = simpleGit(repoPath);
+  const status = await git.status();
+  if (status.current !== defaultBranch) {
+    throw new MergeConflictError(
+      `repo is on '${status.current}', not '${defaultBranch}' — cannot local-merge`,
+      [],
+    );
+  }
+  if (!status.isClean()) {
+    throw new MergeConflictError(
+      `working tree not clean — cannot local-merge into '${defaultBranch}'`,
+      [],
+    );
+  }
+  const res = await execCmd(
+    "git",
+    ["merge", "--no-ff", "--no-edit", branch],
+    { cwd: repoPath },
+  );
+  if (res.exitCode !== 0) {
+    await execCmd("git", ["merge", "--abort"], { cwd: repoPath });
+    throw new MergeConflictError(
+      `local merge of '${branch}' into '${defaultBranch}' conflicted`,
+      await detectConflictedFiles(repoPath),
+    );
+  }
+}

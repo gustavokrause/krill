@@ -25,6 +25,7 @@ import { resolveProjectPath } from "@/lib/api/util";
 import { claim } from "../claim";
 import { applyTransitionSideEffects } from "../cleanup";
 import { appendAiComment } from "../comment";
+import { resolvePublishPolicy } from "../publish-policy";
 import { countAiAutoActions, MANUAL_AI_COMMENT_PREFIX } from "../loop-brake";
 import { releaseClaim, transitionStatus } from "../transition";
 import { now } from "../types";
@@ -87,6 +88,32 @@ async function publishRepo(
   if (!task.worktree_path || !task.branch) {
     releaseClaim(taskId, workerId);
     throw new Error(`task ${taskId} missing worktree/branch in PUBLISHING`);
+  }
+
+  // Local path (A1): remote-less project. No origin reset, no PR, no push —
+  // hand the branch to the deliverable gate; the merge-to-main happens locally
+  // on approval (transition DONE).
+  const policy = await resolvePublishPolicy(project);
+  if (!policy.pushRemote) {
+    const localUrl = `local:${task.branch}`;
+    if (task.delivery_url !== localUrl) {
+      db.update(tasks)
+        .set({ delivery_url: localUrl, updated_at: now() })
+        .where(eq(tasks.id, task.id))
+        .run();
+    }
+    const moved = transitionStatus({
+      taskId: task.id,
+      from: "PUBLISHING",
+      to: "NEEDS_REVIEW",
+      pendingReviewKind: "deliverable",
+    });
+    if (moved) {
+      await applyTransitionSideEffects(task.id, "PUBLISHING", "NEEDS_REVIEW");
+    } else {
+      releaseClaim(taskId, workerId);
+    }
+    return;
   }
 
   // If a PR was merged externally (e.g. tech lead squash-merged on GitHub),
