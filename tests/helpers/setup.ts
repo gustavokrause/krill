@@ -119,6 +119,7 @@ export function createTask(
       skip_plan: opts.skip_plan ?? false,
       skip_plan_review: opts.skip_plan_review ?? false,
       skip_ai_review: opts.skip_ai_review ?? false,
+      auto_publish: opts.auto_publish ?? false,
       claimed_until: opts.claimed_until ?? null,
       claimed_by: opts.claimed_by ?? null,
       pending_review_kind: opts.pending_review_kind ?? null,

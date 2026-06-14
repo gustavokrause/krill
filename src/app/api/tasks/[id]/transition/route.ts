@@ -12,6 +12,7 @@ import {
 import { taskTransitionSchema } from "@/lib/api/validation";
 import { broadcast } from "@/lib/sse";
 import { finishMerge } from "@/workflow/finish";
+import { cancelDependentsCascade, tripAutoFinishBreaker } from "@/workflow/breaker";
 import { applyTransitionSideEffects } from "@/workflow/cleanup";
 import { transitionStatus } from "@/workflow/transition";
 import { now } from "@/workflow/types";
@@ -117,6 +118,13 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     }
 
     await applyTransitionSideEffects(id, from, body.to);
+
+    // A3: declining/cancelling a task cancels its dependent subtree, and counts
+    // toward the project's auto-finish failure budget (breaker).
+    if (body.to === "CANCELED") {
+      cancelDependentsCascade(id, `upstream task ${id} canceled`);
+      tripAutoFinishBreaker(existing.project_id, id);
+    }
 
     const updated = db.select().from(tasks).where(eq(tasks.id, id)).get();
     return NextResponse.json({ task: updated });

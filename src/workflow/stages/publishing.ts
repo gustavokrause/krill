@@ -27,6 +27,7 @@ import { applyTransitionSideEffects } from "../cleanup";
 import { appendAiComment } from "../comment";
 import { resolvePublishPolicy } from "../publish-policy";
 import { finishMerge, autoFinishEligible } from "../finish";
+import { tripAutoFinishBreaker } from "../breaker";
 import { countAiAutoActions, MANUAL_AI_COMMENT_PREFIX } from "../loop-brake";
 import { releaseClaim, transitionStatus } from "../transition";
 import { now } from "../types";
@@ -71,6 +72,7 @@ async function deliverOrAutoFinish(
   workerId: string,
 ): Promise<void> {
   const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+  let autoFinishFailed = false;
   if (task && autoFinishEligible(task, project)) {
     try {
       await finishMerge(task, project);
@@ -85,6 +87,7 @@ async function deliverOrAutoFinish(
         `auto-finish merge failed, routing to deliverable review: ${(err as Error).message}`,
         "NEEDS_REVIEW",
       );
+      autoFinishFailed = true;
     }
   }
   const moved = transitionStatus({
@@ -95,6 +98,9 @@ async function deliverOrAutoFinish(
   });
   if (moved) await applyTransitionSideEffects(taskId, "PUBLISHING", "NEEDS_REVIEW");
   else releaseClaim(taskId, workerId);
+  // A3 circuit breaker: a failed auto-finish counts toward the project's
+  // failure budget; trip + pause the project if a batch is snowballing.
+  if (autoFinishFailed) tripAutoFinishBreaker(project.id, taskId);
 }
 
 
