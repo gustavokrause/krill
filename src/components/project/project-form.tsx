@@ -238,7 +238,9 @@ export function ProjectForm(props: Mode) {
             <p className="text-xs text-text-2">
               <code>auto</code> = detected from the repo&apos;s remote (remote → PR
               flow; none → local merge). Set <code>on</code>/<code>off</code> to
-              override.
+              override. <strong>Create PR off</strong> (with Push remote on) pushes
+              the branch but opens no PR — the task stops at review with the branch
+              ref to open a PR or merge by hand.
             </p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

@@ -54,6 +54,10 @@ export function createProject(opts: {
   max_parallel_tasks?: number;
   paused?: boolean;
   folder_path?: string;
+  create_pr?: boolean | null;
+  push_remote?: boolean | null;
+  merge_to_main?: boolean | null;
+  allow_auto_finish?: boolean;
 }): schema.Project {
   const now = Math.floor(Date.now() / 1000);
   const rows = db
@@ -67,6 +71,10 @@ export function createProject(opts: {
       default_branch: "main",
       max_parallel_tasks: opts.max_parallel_tasks ?? 1,
       paused: opts.paused ?? false,
+      create_pr: opts.create_pr ?? null,
+      push_remote: opts.push_remote ?? null,
+      merge_to_main: opts.merge_to_main ?? null,
+      allow_auto_finish: opts.allow_auto_finish ?? false,
       task_counter: 0,
       created_at: now,
       updated_at: now,
