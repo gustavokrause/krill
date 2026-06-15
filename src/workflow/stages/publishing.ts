@@ -175,19 +175,31 @@ async function publishRepo(
 
   // PR-first per OVERVIEW.md: open the PR before any merge attempt so the
   // human always has a tangible artifact to look at, even if the merge
-  // fails repeatedly.
-  const pr = await ensurePr({
-    cwd: task.worktree_path,
-    base: project.default_branch,
-    head: task.branch,
-    title: `${task.id}: ${task.name}`,
-    body: prBody(task.id, task.plan, task.checklist),
-  });
-  if (task.delivery_url !== pr.url) {
-    db.update(tasks)
-      .set({ delivery_url: pr.url, updated_at: now() })
-      .where(eq(tasks.id, task.id))
-      .run();
+  // fails repeatedly. When create_pr is OFF the branch is still synced and
+  // pushed (push_remote is on here), but no PR is opened — delivery is the
+  // branch ref and the task stops at deliverable review (see result.ok below).
+  if (policy.createPr) {
+    const pr = await ensurePr({
+      cwd: task.worktree_path,
+      base: project.default_branch,
+      head: task.branch,
+      title: `${task.id}: ${task.name}`,
+      body: prBody(task.id, task.plan, task.checklist),
+    });
+    if (task.delivery_url !== pr.url) {
+      db.update(tasks)
+        .set({ delivery_url: pr.url, updated_at: now() })
+        .where(eq(tasks.id, task.id))
+        .run();
+    }
+  } else {
+    const branchUrl = `branch:${task.branch}`;
+    if (task.delivery_url !== branchUrl) {
+      db.update(tasks)
+        .set({ delivery_url: branchUrl, updated_at: now() })
+        .where(eq(tasks.id, task.id))
+        .run();
+    }
   }
 
   // Idempotent sync — picks up any human-side resolution pushed to GitHub
@@ -201,6 +213,28 @@ async function publishRepo(
 
   if (result.ok) {
     await pushMerge(task.worktree_path, task.branch);
+    // create_pr OFF: branch is pushed but there's no PR (and no local-merge
+    // target) to finish into, so auto-finish can't apply — stop at deliverable
+    // review with a pointer so the human can open a PR or merge by hand.
+    if (!policy.createPr) {
+      appendAiComment(
+        task.id,
+        `implemented — branch \`${task.branch}\` pushed to origin. PR creation is disabled for this project; open a PR or merge the branch manually.`,
+        "NEEDS_REVIEW",
+      );
+      const moved = transitionStatus({
+        taskId: task.id,
+        from: "PUBLISHING",
+        to: "NEEDS_REVIEW",
+        pendingReviewKind: "deliverable",
+      });
+      if (moved) {
+        await applyTransitionSideEffects(task.id, "PUBLISHING", "NEEDS_REVIEW");
+      } else {
+        releaseClaim(taskId, workerId);
+      }
+      return;
+    }
     await deliverOrAutoFinish(task.id, project, workerId);
     return;
   }

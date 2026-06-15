@@ -25,6 +25,7 @@ import {
   ArrowRight,
   Check,
   CornerUpLeft,
+  GitBranch,
   GitMerge,
   GitPullRequest,
   Loader2,
@@ -387,6 +388,16 @@ export function TaskDetail({
                       local merge · {task.delivery_url.slice("local:".length)}
                     </span>
                   </span>
+                ) : task.delivery_url.startsWith("branch:") ? (
+                  <span
+                    className="mt-3 inline-flex items-center gap-1.5 text-sm font-mono break-all"
+                    title="PR creation disabled — branch pushed to origin. Open a PR or merge it manually."
+                  >
+                    <GitBranch className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                    <span className="text-amber-500">
+                      branch · {task.delivery_url.slice("branch:".length)} · no PR
+                    </span>
+                  </span>
                 ) : (
                   <a
                     href={task.delivery_url}
@@ -549,6 +560,14 @@ export function TaskDetail({
                       >
                         <GitMerge className="h-3 w-3 shrink-0" />
                         Local merge · {task.delivery_url.slice("local:".length)}
+                      </span>
+                    ) : task.delivery_url.startsWith("branch:") ? (
+                      <span
+                        className="mt-2 inline-flex items-center gap-1.5 text-xs font-mono text-amber-500"
+                        title={`PR creation disabled — branch pushed to origin. Open a PR or merge it manually · ${task.delivery_url.slice("branch:".length)}`}
+                      >
+                        <GitBranch className="h-3 w-3 shrink-0" />
+                        branch · {task.delivery_url.slice("branch:".length)} · no PR
                       </span>
                     ) : (
                       <a
