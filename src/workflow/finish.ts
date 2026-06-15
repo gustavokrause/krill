@@ -28,7 +28,7 @@ export async function finishMerge(task: Task, project: Project): Promise<void> {
 /**
  * A2 gate: may this task skip the deliverable review and auto-finish? Both keys
  * required — the task carries auto_publish AND the project opted in. (The risk
- * envelope — low-risk, non-self-edit — is enforced upstream by baleia, which only
+ * envelope — low-risk, non-self-edit — is enforced upstream by whale, which only
  * sets auto_publish for eligible tasks.)
  */
 export function autoFinishEligible(task: Task, project: Project): boolean {

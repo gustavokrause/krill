@@ -208,7 +208,7 @@ export const tasks = sqliteTable(
       .notNull()
       .default(false),
     // Auto-finish (A2): skip the deliverable gate + auto-merge. Honored only
-    // when the project also sets allow_auto_finish. Set by baleia for
+    // when the project also sets allow_auto_finish. Set by whale for
     // low-risk, non-self-edit tasks under the aggressive dial. AI-review stays on.
     auto_publish: integer("auto_publish", { mode: "boolean" })
       .notNull()
