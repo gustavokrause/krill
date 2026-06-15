@@ -55,6 +55,7 @@ export function ProjectForm(props: Mode) {
   const [allowAutoFinish, setAllowAutoFinish] = useState(
     existing?.allow_auto_finish ?? false,
   );
+  const [showLegend, setShowLegend] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -270,6 +271,23 @@ export function ProjectForm(props: Mode) {
             </div>
             <Switch checked={allowAutoFinish} onCheckedChange={setAllowAutoFinish} />
           </div>
+
+          <div className="rounded-sm border border-info/40 bg-info/5 px-3 py-2 space-y-2">
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-xs text-text leading-relaxed">
+                <span className="font-semibold text-info">On finish: </span>
+                {describeOutcome(createPr, pushRemote, mergeToMain, allowAutoFinish)}
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowLegend((v) => !v)}
+                className="shrink-0 text-xs font-medium text-info hover:underline underline-offset-2"
+              >
+                {showLegend ? "Hide legend" : "Show legend"}
+              </button>
+            </div>
+            {showLegend ? <PolicyLegend /> : null}
+          </div>
         </div>
       ) : null}
 
@@ -307,6 +325,90 @@ export function ProjectForm(props: Mode) {
         </div>
       </DialogFooter>
     </form>
+  );
+}
+
+// Live, plain-language outcome for the current dial values. Mirrors the runtime
+// policy: push_remote is the master switch; create_pr only matters when push is
+// on; merge_to_main gates every merge; allow_auto_finish needs a task armed with
+// auto_publish. null = auto (resolved from the repo's remote at run time).
+function describeOutcome(
+  createPr: boolean | null,
+  pushRemote: boolean | null,
+  mergeToMain: boolean | null,
+  allowAutoFinish: boolean,
+): string {
+  const armed = allowAutoFinish
+    ? " Tasks armed with auto_publish do this unattended to DONE; others wait for Approve."
+    : " Approve to merge.";
+
+  if (pushRemote === false) {
+    if (mergeToMain === false)
+      return "Local, no PR. Nothing is merged — work stays on the branch; Approve marks DONE without merging.";
+    return (
+      "Local, no PR — merge into local main only (origin is not pushed)." +
+      (allowAutoFinish
+        ? " Armed tasks auto-finish on remote-less repos; on repos that have a remote, auto-finish is held for review so origin isn't left behind."
+        : " Approve to merge.")
+    );
+  }
+
+  if (pushRemote === null)
+    return "Push is auto — PR flow if the repo has a remote, else a local merge. Pin Push on/off to fix the behavior.";
+
+  // push_remote on
+  if (createPr === false) {
+    if (mergeToMain === false)
+      return "Direct mode: branch pushed to origin, no PR. Nothing merged — task stops at review.";
+    return (
+      "Direct to main: branch pushed, no PR, then merged into main and pushed to origin." +
+      armed
+    );
+  }
+
+  // PR flow (create_pr on or auto)
+  if (mergeToMain === false)
+    return "Pull request opened and pushed, but never auto-merged — merge it yourself on GitHub.";
+  return "Pull request opened, then squash-merged to main." + armed;
+}
+
+const LEGEND_ROWS: [string, string, string, string, string][] = [
+  ["on", "on", "on", "on", "open PR → auto squash-merge → DONE"],
+  ["on", "on", "on", "off", "open PR → Approve → squash-merge"],
+  ["on", "on", "off", "any", "PR opened + pushed, never merged — merge on GitHub"],
+  ["on", "off", "on", "on", "branch pushed → merge main + push origin → DONE"],
+  ["on", "off", "on", "off", "branch pushed → Approve → merge + push"],
+  ["on", "off", "off", "any", "branch pushed, never merged — stops"],
+  ["off", "—", "on", "on", "local merge, no push → DONE (remote-less) / human-gated (has remote)"],
+  ["off", "—", "off", "any", "nothing merged — stops"],
+];
+
+function PolicyLegend() {
+  return (
+    <div className="overflow-x-auto rounded-sm border border-border">
+      <table className="w-full text-[11px]">
+        <thead>
+          <tr className="bg-surface-2 text-text-2">
+            <th className="px-2 py-1 text-left font-medium">Push</th>
+            <th className="px-2 py-1 text-left font-medium">PR</th>
+            <th className="px-2 py-1 text-left font-medium">Merge</th>
+            <th className="px-2 py-1 text-left font-medium">Auto</th>
+            <th className="px-2 py-1 text-left font-medium">Result</th>
+          </tr>
+        </thead>
+        <tbody>
+          {LEGEND_ROWS.map((r, i) => (
+            <tr key={i} className="border-t border-border">
+              <td className="px-2 py-1 font-mono text-text-2">{r[0]}</td>
+              <td className="px-2 py-1 font-mono text-text-2">{r[1]}</td>
+              <td className="px-2 py-1 font-mono text-text-2">{r[2]}</td>
+              <td className="px-2 py-1 font-mono text-text-2">{r[3]}</td>
+              <td className="px-2 py-1 text-text">{r[4]}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
