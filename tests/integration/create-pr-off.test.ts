@@ -167,3 +167,64 @@ test("auto-finish with create_pr=off merges directly to main and pushes origin",
     .find((c) => /merged .* directly into/.test(c.text));
   assert.ok(comment, "expected an 'auto-finished — merged directly' comment");
 });
+
+test("merge_to_main=off suppresses auto-finish: branch pushed, NOT merged, stops at review", async () => {
+  const repo = initRepoWithRemote();
+  const wtRoot = mkdtempSync(join(tmpdir(), "krill-cproff-wt3-"));
+  tmps.push(wtRoot);
+  const project = createProject({
+    slug: "CPM",
+    has_repo: true,
+    folder_path: repo,
+    create_pr: false,
+    merge_to_main: false,
+    allow_auto_finish: true,
+  });
+  const task = createTask(project, {
+    name: "do thing",
+    status: "PUBLISHING",
+    mode: "non-dev",
+  });
+  db.update(tables.tasks)
+    .set({ auto_publish: true })
+    .where(eq(tables.tasks.id, task.id))
+    .run();
+
+  const branch = "cpm-1-do-thing";
+  const wt = await createWorktree({
+    projectFolder: repo,
+    worktreesRoot: wtRoot,
+    projectSlug: "CPM",
+    taskId: task.id,
+    branch,
+    defaultBranch: "main",
+  });
+  writeFileSync(join(wt, "feature.txt"), "work\n");
+  execFileSync("git", ["add", "-A"], { cwd: wt });
+  execFileSync("git", ["commit", "-m", "feature"], { cwd: wt });
+  db.update(tables.tasks)
+    .set({ worktree_path: wt, branch })
+    .where(eq(tables.tasks.id, task.id))
+    .run();
+
+  await runPublishing("worker-cpm");
+
+  const t = db.select().from(tables.tasks).where(eq(tables.tasks.id, task.id)).get()!;
+  assert.equal(t.status, "NEEDS_REVIEW", "merge off → auto-finish suppressed, human gate holds");
+  assert.equal(t.pending_review_kind, "deliverable");
+  // branch was pushed, but main was NOT merged anywhere
+  assert.ok(!existsSync(join(repo, "feature.txt")), "local main untouched (no merge)");
+  const remoteRefs = execFileSync("git", ["ls-remote", "--heads", "origin"], {
+    cwd: repo,
+    encoding: "utf8",
+  });
+  assert.match(remoteRefs, new RegExp(`refs/heads/${branch}`), "branch still pushed");
+
+  const comment = db
+    .select()
+    .from(tables.comments)
+    .where(eq(tables.comments.task_id, task.id))
+    .all()
+    .find((c) => /merge_to_main is off/.test(c.text));
+  assert.ok(comment, "expected a 'merge_to_main is off' comment");
+});

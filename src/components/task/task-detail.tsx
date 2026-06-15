@@ -281,14 +281,17 @@ export function TaskDetail({
     }
     if (kind === "deliverable") {
       const isBranch = task.delivery_url?.startsWith("branch:") ?? false;
+      const mergeOff = project?.merge_to_main === false;
       return {
         kind,
         title: "Deliverable review",
         message: !project?.has_repo
           ? "Review the published files. Approve to mark DONE, or send back to IMPLEMENTING for a redo."
-          : isBranch
-            ? "No PR (create_pr off). The branch is on origin. Approve to merge it into main and push, or send back to IMPLEMENTING for a redo."
-            : "Review the PR. Approve to squash-merge to main, or send back to IMPLEMENTING for a redo.",
+          : mergeOff
+            ? `Merge to main is off — krill won't merge this. Merge the ${isBranch ? "branch" : "PR"} yourself; Approve marks DONE without merging, or send back to IMPLEMENTING.`
+            : isBranch
+              ? "No PR (create_pr off). The branch is on origin. Approve to merge it into main and push, or send back to IMPLEMENTING for a redo."
+              : "Review the PR. Approve to squash-merge to main, or send back to IMPLEMENTING for a redo.",
         showSolveWithSonnet: false,
       };
     }
@@ -304,6 +307,7 @@ export function TaskDetail({
     task.pending_review_kind,
     task.delivery_url,
     project?.has_repo,
+    project?.merge_to_main,
     config.publishing_solve_conflicts,
   ]);
 
@@ -643,7 +647,8 @@ export function TaskDetail({
                         const needsBranchConfirm =
                           intent === "approve" &&
                           task.pending_review_kind === "deliverable" &&
-                          (task.delivery_url?.startsWith("branch:") ?? false);
+                          (task.delivery_url?.startsWith("branch:") ?? false) &&
+                          project?.merge_to_main !== false;
                         const btn = (
                           <button
                             key={s}
