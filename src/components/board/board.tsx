@@ -490,6 +490,13 @@ export function Board({
   const [pickerSaving, setPickerSaving] = useState(false);
   const [automationSaving, setAutomationSaving] = useState(false);
 
+  // useState seeds once on mount; re-sync when the server prop changes so
+  // router.refresh() (fired after create/edit) surfaces new rows. Without
+  // this, only a full reload remounts and picks up fresh data.
+  useEffect(() => {
+    setTasks(initialTasks);
+  }, [initialTasks]);
+
   const toggleAutomation = useCallback(async () => {
     const next = !config.automation_enabled;
     setAutomationSaving(true);

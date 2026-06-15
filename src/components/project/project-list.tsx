@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { FolderGit2, GitBranch, Layers, Pause, Play } from "lucide-react";
 import type { Project } from "@/db/schema";
 import { useEventSource } from "@/lib/client/use-event-source";
@@ -88,6 +88,12 @@ export type ProjectListEntry = { project: Project; activeCount: number };
 
 export function ProjectList({ initial }: { initial: ProjectListEntry[] }) {
   const [entries, setEntries] = useState<ProjectListEntry[]>(initial);
+
+  // useState seeds once on mount; re-sync when the server prop changes so
+  // router.refresh() (fired after create/edit) surfaces new projects.
+  useEffect(() => {
+    setEntries(initial);
+  }, [initial]);
 
   const upsert = useCallback((p: Project) => {
     setEntries((prev) => {
