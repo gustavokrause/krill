@@ -74,8 +74,12 @@ async function deliverOrAutoFinish(
   const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
   // PR-less direct-to-main delivery (create_pr off): branch already pushed, no PR.
   const isBranch = !!task?.delivery_url?.startsWith("branch:");
+  const policy = await resolvePublishPolicy(project);
   let autoFinishFailed = false;
-  if (task && autoFinishEligible(task, project)) {
+  // Auto-finish only when the project actually integrates (merge_to_main on).
+  // With it off krill never merges, so there's nothing to finish unattended —
+  // always defer to the human gate.
+  if (task && autoFinishEligible(task, project) && policy.mergeToMain) {
     try {
       await finishMerge(task, project);
       appendAiComment(
@@ -97,13 +101,21 @@ async function deliverOrAutoFinish(
       autoFinishFailed = true;
     }
   }
-  // Human-gated landing for a PR-less branch: tell the reviewer what Approve does.
-  if (isBranch && !autoFinishFailed) {
-    appendAiComment(
-      taskId,
-      `branch \`${task!.branch}\` pushed to origin, no PR (create_pr off) — approve to merge into ${project.default_branch} and push, or merge the branch manually`,
-      "NEEDS_REVIEW",
-    );
+  // Human-gated landing — tell the reviewer what Approve will (or won't) do.
+  if (!autoFinishFailed) {
+    if (!policy.mergeToMain) {
+      appendAiComment(
+        taskId,
+        `merge_to_main is off — krill won't merge this. Merge the ${isBranch ? "branch" : "PR"} yourself; Approve marks the task DONE without merging.`,
+        "NEEDS_REVIEW",
+      );
+    } else if (isBranch) {
+      appendAiComment(
+        taskId,
+        `branch \`${task!.branch}\` pushed to origin, no PR (create_pr off) — approve to merge into ${project.default_branch} and push, or merge the branch manually`,
+        "NEEDS_REVIEW",
+      );
+    }
   }
   const moved = transitionStatus({
     taskId,

@@ -14,25 +14,23 @@ import { resolvePublishPolicy } from "./publish-policy";
  */
 export async function finishMerge(task: Task, project: Project): Promise<void> {
   if (!project.has_repo || !task.delivery_url) return;
+  const policy = await resolvePublishPolicy(project);
+  // merge_to_main off → krill never merges, for any delivery shape. The PR/branch
+  // is left for the human to merge; callers mark DONE without integrating.
+  if (!policy.mergeToMain) return;
   if (/^https?:\/\//.test(task.delivery_url)) {
     await mergePr(project.folder_path, task.delivery_url, "squash");
   } else if (task.delivery_url.startsWith("local:") && task.branch) {
-    const policy = await resolvePublishPolicy(project);
-    if (policy.mergeToMain) {
-      await localMergeToMain(
-        resolveProjectPath(project.folder_path),
-        task.branch,
-        project.default_branch,
-      );
-    }
+    await localMergeToMain(
+      resolveProjectPath(project.folder_path),
+      task.branch,
+      project.default_branch,
+    );
   } else if (task.delivery_url.startsWith("branch:") && task.branch) {
-    const policy = await resolvePublishPolicy(project);
-    if (policy.mergeToMain) {
-      const repoPath = resolveProjectPath(project.folder_path);
-      await localMergeToMain(repoPath, task.branch, project.default_branch);
-      if (policy.pushRemote) {
-        await pushDefaultBranch(repoPath, project.default_branch);
-      }
+    const repoPath = resolveProjectPath(project.folder_path);
+    await localMergeToMain(repoPath, task.branch, project.default_branch);
+    if (policy.pushRemote) {
+      await pushDefaultBranch(repoPath, project.default_branch);
     }
   }
 }
