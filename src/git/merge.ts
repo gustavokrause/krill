@@ -131,6 +131,19 @@ export async function pushMerge(
 }
 
 /**
+ * Push the default branch to origin. Used by the PR-less direct-to-main flow
+ * (create_pr off + push_remote on): after localMergeToMain integrates the task
+ * branch, the merged main is pushed straight to origin — no PR.
+ */
+export async function pushDefaultBranch(
+  repoPath: string,
+  defaultBranch: string,
+): Promise<void> {
+  const git = simpleGit(repoPath);
+  await git.push(["origin", defaultBranch]);
+}
+
+/**
  * Local merge-to-main for remote-less projects (A1): merge the task branch
  * INTO the default branch in the project's main checkout — no push, no PR.
  * Requires the main repo on a clean default branch; aborts on conflict so a

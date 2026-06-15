@@ -96,6 +96,8 @@ export function TaskCard({
 
   const Icon = STATUS_ICON[task.status];
   const iconColor = STATUS_COLOR[task.status];
+  // Auto-finish armed + still in flight → highlight the whole card, not just the badge.
+  const armed = task.auto_publish && !TERMINAL.has(task.status);
   const kind = task.pending_review_kind;
   const skipLabels: string[] = [];
   if (task.skip_plan) skipLabels.push("skip plan");
@@ -105,7 +107,11 @@ export function TaskCard({
   return (
     <Link
       href={`/tasks/${task.id}`}
-      className="block border border-border rounded-sm bg-surface-2 px-3 py-2 hover:border-border-strong"
+      className={`block border rounded-sm px-3 py-2 hover:border-border-strong ${
+        armed
+          ? "border-warning/50 bg-warning/5"
+          : "border-border bg-surface-2"
+      }`}
     >
       <div className="flex items-start gap-2">
         <Icon
