@@ -19,6 +19,11 @@ export const projectCreateSchema = z.object({
   default_branch: z.string().min(1).optional(),
   max_parallel_tasks: z.number().int().min(1).max(5).optional(),
   paused: z.boolean().optional(),
+  // Publish policy: null = auto-detect from the repo remote; true/false override.
+  create_pr: z.boolean().nullable().optional(),
+  push_remote: z.boolean().nullable().optional(),
+  merge_to_main: z.boolean().nullable().optional(),
+  allow_auto_finish: z.boolean().optional(),
 });
 
 export const projectPatchSchema = projectCreateSchema
@@ -52,6 +57,7 @@ export const taskPatchSchema = z.object({
   skip_plan: z.boolean().optional(),
   skip_plan_review: z.boolean().optional(),
   skip_ai_review: z.boolean().optional(),
+  auto_publish: z.boolean().optional(),
   delivery_url: z.string().nullable().optional(),
 });
 

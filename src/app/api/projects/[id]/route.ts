@@ -55,6 +55,16 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           ? { max_parallel_tasks: body.max_parallel_tasks }
           : {}),
         ...(body.paused !== undefined ? { paused: body.paused } : {}),
+        ...(body.create_pr !== undefined ? { create_pr: body.create_pr } : {}),
+        ...(body.push_remote !== undefined
+          ? { push_remote: body.push_remote }
+          : {}),
+        ...(body.merge_to_main !== undefined
+          ? { merge_to_main: body.merge_to_main }
+          : {}),
+        ...(body.allow_auto_finish !== undefined
+          ? { allow_auto_finish: body.allow_auto_finish }
+          : {}),
       })
       .where(eq(projects.id, id))
       .returning()
