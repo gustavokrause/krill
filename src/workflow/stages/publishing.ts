@@ -17,6 +17,7 @@ import {
   commitMerge,
   ensurePr,
   getPrState,
+  hasRemote,
   mergeOriginInto,
   pushMerge,
   resetWorktreeToOriginBranch,
@@ -74,12 +75,21 @@ async function deliverOrAutoFinish(
   const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
   // PR-less direct-to-main delivery (create_pr off): branch already pushed, no PR.
   const isBranch = !!task?.delivery_url?.startsWith("branch:");
+  const isLocal = !!task?.delivery_url?.startsWith("local:");
   const policy = await resolvePublishPolicy(project);
+  // Push off on a repo that HAS a remote: the local merge leaves origin behind.
+  // Don't auto-finish that silently — a human must know to push it themselves.
+  const localOnRemote =
+    isLocal && (await hasRemote(resolveProjectPath(project.folder_path)));
   let autoFinishFailed = false;
-  // Auto-finish only when the project actually integrates (merge_to_main on).
-  // With it off krill never merges, so there's nothing to finish unattended —
-  // always defer to the human gate.
-  if (task && autoFinishEligible(task, project) && policy.mergeToMain) {
+  // Auto-finish only when the project actually integrates (merge_to_main on) and
+  // we're not leaving a remote behind. Otherwise defer to the human gate.
+  if (
+    task &&
+    autoFinishEligible(task, project) &&
+    policy.mergeToMain &&
+    !localOnRemote
+  ) {
     try {
       await finishMerge(task, project);
       appendAiComment(
@@ -107,6 +117,12 @@ async function deliverOrAutoFinish(
       appendAiComment(
         taskId,
         `merge_to_main is off — krill won't merge this. Merge the ${isBranch ? "branch" : "PR"} yourself; Approve marks the task DONE without merging.`,
+        "NEEDS_REVIEW",
+      );
+    } else if (localOnRemote) {
+      appendAiComment(
+        taskId,
+        `push_remote is off but this repo has a remote — Approve merges into local ${project.default_branch} only; origin will NOT be pushed. Push it manually after.`,
         "NEEDS_REVIEW",
       );
     } else if (isBranch) {

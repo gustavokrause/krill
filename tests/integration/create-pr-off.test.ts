@@ -228,3 +228,59 @@ test("merge_to_main=off suppresses auto-finish: branch pushed, NOT merged, stops
     .find((c) => /merge_to_main is off/.test(c.text));
   assert.ok(comment, "expected a 'merge_to_main is off' comment");
 });
+
+test("push_remote=off on a repo WITH a remote: auto-finish suppressed, not DONE", async () => {
+  const repo = initRepoWithRemote();
+  const wtRoot = mkdtempSync(join(tmpdir(), "krill-cproff-wt4-"));
+  tmps.push(wtRoot);
+  const project = createProject({
+    slug: "POR",
+    has_repo: true,
+    folder_path: repo,
+    push_remote: false, // override: don't touch origin even though one exists
+    merge_to_main: true,
+    allow_auto_finish: true,
+  });
+  const task = createTask(project, {
+    name: "do thing",
+    status: "PUBLISHING",
+    mode: "non-dev",
+  });
+  db.update(tables.tasks)
+    .set({ auto_publish: true })
+    .where(eq(tables.tasks.id, task.id))
+    .run();
+
+  const branch = "por-1-do-thing";
+  const wt = await createWorktree({
+    projectFolder: repo,
+    worktreesRoot: wtRoot,
+    projectSlug: "POR",
+    taskId: task.id,
+    branch,
+    defaultBranch: "main",
+  });
+  writeFileSync(join(wt, "feature.txt"), "work\n");
+  execFileSync("git", ["add", "-A"], { cwd: wt });
+  execFileSync("git", ["commit", "-m", "feature"], { cwd: wt });
+  db.update(tables.tasks)
+    .set({ worktree_path: wt, branch })
+    .where(eq(tables.tasks.id, task.id))
+    .run();
+
+  await runPublishing("worker-por");
+
+  const t = db.select().from(tables.tasks).where(eq(tables.tasks.id, task.id)).get()!;
+  assert.equal(t.status, "NEEDS_REVIEW", "remote behind → no silent auto-DONE");
+  assert.equal(t.pending_review_kind, "deliverable");
+  assert.match(t.delivery_url ?? "", /^local:/, "local delivery, no push");
+  assert.ok(!existsSync(join(repo, "feature.txt")), "not merged yet (merge on approve)");
+
+  const comment = db
+    .select()
+    .from(tables.comments)
+    .where(eq(tables.comments.task_id, task.id))
+    .all()
+    .find((c) => /origin will NOT be pushed/.test(c.text));
+  assert.ok(comment, "expected an 'origin will NOT be pushed' comment");
+});

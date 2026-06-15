@@ -281,6 +281,7 @@ export function TaskDetail({
     }
     if (kind === "deliverable") {
       const isBranch = task.delivery_url?.startsWith("branch:") ?? false;
+      const isLocal = task.delivery_url?.startsWith("local:") ?? false;
       const mergeOff = project?.merge_to_main === false;
       return {
         kind,
@@ -291,7 +292,9 @@ export function TaskDetail({
             ? `Merge to main is off — krill won't merge this. Merge the ${isBranch ? "branch" : "PR"} yourself; Approve marks DONE without merging, or send back to IMPLEMENTING.`
             : isBranch
               ? "No PR (create_pr off). The branch is on origin. Approve to merge it into main and push, or send back to IMPLEMENTING for a redo."
-              : "Review the PR. Approve to squash-merge to main, or send back to IMPLEMENTING for a redo.",
+              : isLocal
+                ? "Local merge — no PR. Approve to merge into main on this machine (origin is NOT pushed — push manually after), or send back to IMPLEMENTING."
+                : "Review the PR. Approve to squash-merge to main, or send back to IMPLEMENTING for a redo.",
         showSolveWithSonnet: false,
       };
     }
