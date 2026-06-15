@@ -14,6 +14,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Tooltip } from "@/components/ui/tooltip";
+import { Info } from "lucide-react";
 import { useToast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DialogBody, DialogFooter } from "@/components/ui/dialog";
@@ -245,16 +247,24 @@ export function ProjectForm(props: Mode) {
             </p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <PolicyRow label="Create PR" value={createPr} onChange={setCreatePr} />
+            <PolicyRow
+              label="Create PR"
+              value={createPr}
+              onChange={setCreatePr}
+              hint="auto: open a PR only if the repo has a remote. on: always try (fails on a remote-less repo). off: no PR — push the branch only."
+            />
             <PolicyRow
               label="Push remote"
               value={pushRemote}
               onChange={setPushRemote}
+              hint="auto: push only if the repo has a remote. on: always push (fails with no origin). off: keep everything local."
             />
             <PolicyRow
               label="Merge to main"
               value={mergeToMain}
               onChange={setMergeToMain}
+              hideOn
+              hint="auto: merge into main on finish. off: never merge — leave the PR/branch for you to merge by hand. (on would behave identically to auto, so it's hidden.)"
             />
           </div>
           <div className="flex items-center justify-between gap-3 rounded-sm border border-warning/40 bg-warning/5 px-3 py-2">
@@ -430,15 +440,38 @@ function PolicyRow({
   label,
   value,
   onChange,
+  hint,
+  hideOn = false,
 }: {
   label: string;
   value: boolean | null;
   onChange: (v: boolean | null) => void;
+  hint?: string;
+  // Hide the "on" option where it's behaviorally identical to "auto" (merge_to_main).
+  hideOn?: boolean;
 }) {
-  const current = value == null ? "auto" : value ? "on" : "off";
+  // With "on" hidden, true and null both mean "auto" (same runtime behavior).
+  const current = hideOn
+    ? value === false
+      ? "off"
+      : "auto"
+    : value == null
+      ? "auto"
+      : value
+        ? "on"
+        : "off";
   return (
     <div className="flex items-center justify-between gap-2 rounded-sm border border-border bg-surface-2 px-2.5 py-1.5">
-      <span className="text-xs text-text-2">{label}</span>
+      <span className="inline-flex items-center gap-1 text-xs text-text-2">
+        {label}
+        {hint ? (
+          <Tooltip title={label} description={hint} side="top">
+            <span className="inline-flex text-text-3 cursor-help">
+              <Info className="h-3 w-3" />
+            </span>
+          </Tooltip>
+        ) : null}
+      </span>
       <Select
         value={current}
         onValueChange={(v) =>
@@ -450,7 +483,7 @@ function PolicyRow({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="auto">auto</SelectItem>
-          <SelectItem value="on">on</SelectItem>
+          {hideOn ? null : <SelectItem value="on">on</SelectItem>}
           <SelectItem value="off">off</SelectItem>
         </SelectContent>
       </Select>
