@@ -73,7 +73,8 @@ AI + HUMAN WORKFLOW
     {comments} # append-only log. Each entry: { at, stage, author: "human"|"ai", text }. Stages append; readers filter by stage tag. Replaces former {plan_notes}, {implementation_notes}, {human_notes}.
 
     {mode} # enum: "dev" | "non-dev". "dev" = task modifies the app/codebase. "non-dev" = anything else (research, decisions, docs, copy, strategy, ops, etc.). Shapes prompt direction at PLANNING + IMPLEMENTING + AI-REVIEW. REJECT task creation if mode="dev" and project has_repo=false (impossible state).
-    {delivery_url} # PR URL when has_repo=true; file/folder link to published deliverable when has_repo=false
+    {delivery_url} # PR URL when has_repo=true with a remote; `local:<branch>` for the local-merge path (remote-less repo, A1); file/folder link when has_repo=false
+    {auto_publish} # bool (A2) — when true AND project.allow_auto_finish=true, PUBLISHING skips the deliverable gate and merges straight to DONE. Double-gated; AI-REVIEW still runs. Default false. Set by the whale strategy layer.
 
 
   WORKFLOW:
@@ -165,6 +166,7 @@ AI + HUMAN WORKFLOW
               {ELSE}
                 - AI appends comment ({stage: "AI-REVIEW", author: "ai", text: <decline reason>}) → move back to status "IMPLEMENTING"
     - PUBLISHING:
+      - Auto-finish (A2): if {auto_publish}=true AND project {allow_auto_finish}=true, after a clean merge the deliverable gate is SKIPPED and the task goes straight to DONE (no NEEDS_REVIEW(deliverable)). Remote-less repos merge locally and set {delivery_url}=`local:<branch>`. AI-REVIEW still ran upstream. If either flag is false, the normal deliverable gate below applies. A3 circuit breaker: ≥2 (or ≥30%/1h) auto-finish failures pauses the project; declining cascade-cancels dependents.
       - Deterministic cron (no LLM in the happy path; Sonnet only on conflict + {publishing_solve_conflicts}=true)
         - cron picks claim
           {IF project.has_repo}

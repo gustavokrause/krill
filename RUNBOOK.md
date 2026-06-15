@@ -231,7 +231,7 @@ with Sonnet" CTA are prefixed with `[manual] ` and excluded from the count.
 
 | Goal | Command / env |
 |---|---|
-| Use the system (LAN, phone, daily ops) | `npm run build && npm start` — default stub Claude |
+| Use the system (LAN, phone, daily ops) | `npm run build && npm start` — bare default is stub; persist real with `CLAUDE_RUNNER=real` in `.env.local` (how the bridge fleet runs) |
 | Real Claude burn | `CLAUDE_RUNNER=real npm start` — spawns the `claude` CLI per stage |
 | Spike walk with no background interference | `CRON_DISABLED=1 npm start` + manual `/api/tick` |
 | App-code development with hot reload | `npm run dev` (desktop only — mobile breaks) |

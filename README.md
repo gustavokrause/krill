@@ -30,6 +30,22 @@ The harness handles git worktrees, branch + PR ops, atomic claims,
 kill switches, and live SSE updates. Claude fills in the plan, the code,
 and the review decisions.
 
+### Autonomy & publishing (A1–A3)
+
+- **Publish policy (A1)** — per project, `create_pr` / `push_remote` /
+  `merge_to_main` (null = auto-detect from the repo's remote). Remote-less repos
+  take the **local-merge path**: publish produces a `local:<branch>` deliverable,
+  approved → merged to main on this machine (no PR).
+- **Auto-finish (A2)** — a task with `auto_publish=true` **and** its project's
+  `allow_auto_finish=true` skips the deliverable-review gate and merges straight to
+  DONE. Double-gated; AI review still runs.
+- **Circuit breaker (A3)** — ≥2 (or ≥30% in 1h) auto-finish failures **pauses** the
+  project; declining a task **cascade-cancels** its dependents. Stops a bad run
+  snowballing.
+
+These are set by the upstream strategy layer ([whale](../whale)); krill enforces
+the gates. Schema: migrations `0004` (publish policy) + `0005` (auto-finish).
+
 ## Requirements
 
 - [Claude Code CLI](https://claude.ai/code) installed and authenticated
@@ -55,8 +71,9 @@ is the default page — register a project, then create a task. The autonomous
 cron starts on boot; toggle it off any time from `/settings` or via
 `PATCH /api/config { "automation_enabled": false }`.
 
-Stub Claude ships by default so the spine works without the `claude` CLI.
-Flip to real Claude with `CLAUDE_RUNNER=real npm start`.
+The code default is stub Claude, so the spine works without the `claude` CLI.
+Set `CLAUDE_RUNNER=real` (via `.env.local`) to spawn the real CLI per stage — the
+bridge fleet runs real this way.
 
 ## Develop (secondary)
 
@@ -72,8 +89,9 @@ npm run dev
 npm test
 ```
 
-19 integration tests covering atomic claim, transitions, eligibility, the
-decline brake, and the full BACKLOG → DONE walk against a stub Claude. ~3s.
+62 tests covering atomic claim, transitions, eligibility, the decline brake,
+publish-policy resolution, the auto-finish path + permission gate, the circuit
+breaker, and the full BACKLOG → DONE walk against a stub Claude. ~9s.
 
 ## LAN trust model
 
