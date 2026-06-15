@@ -6,6 +6,13 @@ import type { Project } from "@/db/schema";
 import { api } from "@/lib/client/api";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -35,6 +42,19 @@ export function ProjectForm(props: Mode) {
     existing?.max_parallel_tasks ?? 1,
   );
   const [paused, setPaused] = useState(existing?.paused ?? false);
+  // Publish policy (null = auto-detect from the repo remote; true/false override).
+  const [createPr, setCreatePr] = useState<boolean | null>(
+    existing?.create_pr ?? null,
+  );
+  const [pushRemote, setPushRemote] = useState<boolean | null>(
+    existing?.push_remote ?? null,
+  );
+  const [mergeToMain, setMergeToMain] = useState<boolean | null>(
+    existing?.merge_to_main ?? null,
+  );
+  const [allowAutoFinish, setAllowAutoFinish] = useState(
+    existing?.allow_auto_finish ?? false,
+  );
   const [busy, setBusy] = useState(false);
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -66,6 +86,10 @@ export function ProjectForm(props: Mode) {
           default_branch: defaultBranch,
           max_parallel_tasks: maxParallel,
           paused,
+          create_pr: createPr,
+          push_remote: pushRemote,
+          merge_to_main: mergeToMain,
+          allow_auto_finish: allowAutoFinish,
         };
         if (hasRepoOverride !== undefined) body.has_repo = hasRepoOverride;
         await api.patchProject(props.project.id, body);
@@ -212,15 +236,23 @@ export function ProjectForm(props: Mode) {
           <div>
             <Label>Publishing policy</Label>
             <p className="text-xs text-text-2">
-              Read-only here. <code>null</code> = auto-detected from the repo&apos;s
-              remote. Editing these (and the autonomy toggle below) is a behavior
-              change, gated to a follow-up — see session 06.
+              <code>auto</code> = detected from the repo&apos;s remote (remote → PR
+              flow; none → local merge). Set <code>on</code>/<code>off</code> to
+              override.
             </p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <PolicyRow label="Create PR" value={existing?.create_pr} />
-            <PolicyRow label="Push remote" value={existing?.push_remote} />
-            <PolicyRow label="Merge to main" value={existing?.merge_to_main} />
+            <PolicyRow label="Create PR" value={createPr} onChange={setCreatePr} />
+            <PolicyRow
+              label="Push remote"
+              value={pushRemote}
+              onChange={setPushRemote}
+            />
+            <PolicyRow
+              label="Merge to main"
+              value={mergeToMain}
+              onChange={setMergeToMain}
+            />
           </div>
           <div className="flex items-center justify-between gap-3 rounded-sm border border-warning/40 bg-warning/5 px-3 py-2">
             <div>
@@ -234,9 +266,7 @@ export function ProjectForm(props: Mode) {
                 task flag; AI review stays on.
               </p>
             </div>
-            <span className="font-mono text-xs shrink-0">
-              {existing?.allow_auto_finish ? "ON" : "off"}
-            </span>
+            <Switch checked={allowAutoFinish} onCheckedChange={setAllowAutoFinish} />
           </div>
         </div>
       ) : null}
@@ -295,17 +325,31 @@ function suggestSlug(name: string): string {
 function PolicyRow({
   label,
   value,
+  onChange,
 }: {
   label: string;
-  value: boolean | null | undefined;
+  value: boolean | null;
+  onChange: (v: boolean | null) => void;
 }) {
-  const text = value == null ? "auto" : value ? "on" : "off";
-  const tone =
-    value == null ? "text-text-2" : value ? "text-success" : "text-text-3";
+  const current = value == null ? "auto" : value ? "on" : "off";
   return (
     <div className="flex items-center justify-between gap-2 rounded-sm border border-border bg-surface-2 px-2.5 py-1.5">
       <span className="text-xs text-text-2">{label}</span>
-      <span className={`font-mono text-xs ${tone}`}>{text}</span>
+      <Select
+        value={current}
+        onValueChange={(v) =>
+          onChange(v === "auto" ? null : v === "on")
+        }
+      >
+        <SelectTrigger className="h-7 w-24 font-mono text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="auto">auto</SelectItem>
+          <SelectItem value="on">on</SelectItem>
+          <SelectItem value="off">off</SelectItem>
+        </SelectContent>
+      </Select>
     </div>
   );
 }

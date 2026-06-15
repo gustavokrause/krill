@@ -61,6 +61,9 @@ export function TaskForm(props: Mode) {
   const [skipAiReview, setSkipAiReview] = useState(
     existing?.skip_ai_review ?? false,
   );
+  const [autoPublish, setAutoPublish] = useState(
+    existing?.auto_publish ?? false,
+  );
   const [busy, setBusy] = useState(false);
 
   const parseCsv = (s: string) =>
@@ -84,7 +87,8 @@ export function TaskForm(props: Mode) {
           affected_paths: parseLines(affectedPaths),
           skip_plan: skipPlan,
           skip_plan_review: skipPlanReview,
-          skip_ai_review: skipAiReview,
+          skip_ai_review: autoPublish ? false : skipAiReview,
+          auto_publish: autoPublish,
         });
         toast.push({ variant: "success", title: `Created ${task.id}` });
         router.back();
@@ -99,7 +103,8 @@ export function TaskForm(props: Mode) {
           affected_paths: parseLines(affectedPaths),
           skip_plan: skipPlan,
           skip_plan_review: skipPlanReview,
-          skip_ai_review: skipAiReview,
+          skip_ai_review: autoPublish ? false : skipAiReview,
+          auto_publish: autoPublish,
         });
         toast.push({ variant: "success", title: "Task updated" });
         router.back();
@@ -270,9 +275,23 @@ export function TaskForm(props: Mode) {
           />
           <SkipRow
             label="Skip AI review"
-            helper="AI-REVIEW gate is bypassed; IMPLEMENTING jumps to PUBLISHING."
-            checked={skipAiReview}
+            helper={
+              autoPublish
+                ? "Locked off while Auto-finish is on — AI review is the last guard when the human gate is skipped."
+                : "AI-REVIEW gate is bypassed; IMPLEMENTING jumps to PUBLISHING."
+            }
+            checked={autoPublish ? false : skipAiReview}
             onChange={setSkipAiReview}
+            disabled={autoPublish}
+          />
+          <SkipRow
+            label="Auto-finish (⚠ dangerous)"
+            helper="Skip the deliverable review gate and auto-merge to DONE unattended. Honored only when the project also enables Allow auto-finish. AI review still applies."
+            checked={autoPublish}
+            onChange={(v) => {
+              setAutoPublish(v);
+              if (v) setSkipAiReview(false);
+            }}
           />
         </div>
       </div>
