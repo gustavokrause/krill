@@ -22,6 +22,8 @@ export function ProjectForm(props: Mode) {
 
   const [name, setName] = useState(existing?.name ?? "");
   const [slug, setSlug] = useState(existing?.slug ?? "");
+  // Auto-fill slug from name until the user types one by hand (create only).
+  const [slugTouched, setSlugTouched] = useState(props.kind === "edit");
   const [folder, setFolder] = useState(existing?.folder_path ?? "");
   const [hasRepoOverride, setHasRepoOverride] = useState<boolean | undefined>(
     existing?.has_repo,
@@ -68,7 +70,11 @@ export function ProjectForm(props: Mode) {
         if (hasRepoOverride !== undefined) body.has_repo = hasRepoOverride;
         await api.patchProject(props.project.id, body);
         toast.push({ variant: "success", title: "Project updated" });
+        // push lands on /projects; refresh re-resolves the @modal slot against
+        // the new URL (→ default.tsx) so the intercepted modal actually closes,
+        // and refetches the now-stale server list.
         router.push("/projects");
+        router.refresh();
       }
     } catch (err) {
       toast.push({
@@ -87,7 +93,10 @@ export function ProjectForm(props: Mode) {
     try {
       await api.deleteProject(props.project.id);
       toast.push({ variant: "warning", title: "Project deleted" });
+      // Same as edit: push for a deterministic destination, refresh to dismiss
+      // the intercepted modal (slot → default.tsx) and drop the deleted row.
       router.push("/projects");
+      router.refresh();
     } catch (err) {
       toast.push({
         variant: "danger",
@@ -104,21 +113,32 @@ export function ProjectForm(props: Mode) {
       <DialogBody className="space-y-5">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Field label="Name" required>
-          <Input value={name} onChange={(e) => setName(e.target.value)} required />
+          <Input
+            value={name}
+            onChange={(e) => {
+              const v = e.target.value;
+              setName(v);
+              if (!slugTouched) setSlug(suggestSlug(v));
+            }}
+            required
+          />
         </Field>
 
         <Field
           label="Slug"
           required
-          helper="UPPERCASE, unique. Used in task ids (e.g., AT-1)."
+          helper="2 chars, UPPERCASE, unique. Used in task ids (e.g., AT-1)."
         >
           <Input
             value={slug}
-            onChange={(e) => setSlug(e.target.value.toUpperCase())}
+            onChange={(e) => {
+              setSlugTouched(true);
+              setSlug(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 2));
+            }}
             required
             disabled={props.kind === "edit"}
             className="font-mono"
-            maxLength={16}
+            maxLength={2}
           />
         </Field>
 
@@ -256,6 +276,20 @@ export function ProjectForm(props: Mode) {
       </DialogFooter>
     </form>
   );
+}
+
+// Suggest a 2-char slug from the name: initials of each word (camelCase counts),
+// else the first two letters. e.g. "ArqTrack"→AT, "Meu Veleiro"→MV, "krill"→KR.
+function suggestSlug(name: string): string {
+  const words = name
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .split(/[^a-zA-Z0-9]+/)
+    .filter(Boolean);
+  const initials = words.map((w) => w[0]).join("");
+  const base = initials.length >= 2 ? initials : words.join("");
+  let s = base.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (s && !/^[A-Z]/.test(s)) s = "X" + s.slice(1); // slug must start with a letter
+  return s.slice(0, 2);
 }
 
 function PolicyRow({

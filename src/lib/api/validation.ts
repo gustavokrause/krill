@@ -8,9 +8,8 @@ import {
 
 export const slugSchema = z
   .string()
-  .min(1)
-  .max(16)
-  .regex(/^[A-Z][A-Z0-9]*$/, "slug must be UPPERCASE alphanumeric, start with a letter");
+  .length(2)
+  .regex(/^[A-Z][A-Z0-9]$/, "slug must be 2 chars: an uppercase letter then a letter or digit");
 
 export const projectCreateSchema = z.object({
   name: z.string().min(1).max(120),
