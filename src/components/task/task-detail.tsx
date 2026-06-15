@@ -377,27 +377,39 @@ export function TaskDetail({
                 </p>
               ) : null}
               {task.delivery_url ? (
-                <a
-                  href={task.delivery_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-3 inline-flex items-center gap-1.5 text-sm font-mono hover:underline underline-offset-2 break-all"
-                >
-                  {task.status === "DONE" ? (
+                task.delivery_url.startsWith("local:") ? (
+                  <span
+                    className="mt-3 inline-flex items-center gap-1.5 text-sm font-mono break-all"
+                    title="Local merge — no PR/remote. Merged to the project's main on this machine."
+                  >
                     <GitMerge className="h-3.5 w-3.5 shrink-0 text-purple-500" />
-                  ) : task.pending_review_kind === "conflict" ? (
-                    <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-danger" />
-                  ) : (
-                    <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-success" />
-                  )}
-                  <span className={
-                    task.status === "DONE" ? "text-purple-500" :
-                    task.pending_review_kind === "conflict" ? "text-danger" :
-                    "text-info"
-                  }>
-                    {task.delivery_url}
+                    <span className="text-purple-500">
+                      local merge · {task.delivery_url.slice("local:".length)}
+                    </span>
                   </span>
-                </a>
+                ) : (
+                  <a
+                    href={task.delivery_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-3 inline-flex items-center gap-1.5 text-sm font-mono hover:underline underline-offset-2 break-all"
+                  >
+                    {task.status === "DONE" ? (
+                      <GitMerge className="h-3.5 w-3.5 shrink-0 text-purple-500" />
+                    ) : task.pending_review_kind === "conflict" ? (
+                      <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-danger" />
+                    ) : (
+                      <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-success" />
+                    )}
+                    <span className={
+                      task.status === "DONE" ? "text-purple-500" :
+                      task.pending_review_kind === "conflict" ? "text-danger" :
+                      "text-info"
+                    }>
+                      {task.delivery_url}
+                    </span>
+                  </a>
+                )
               ) : null}
             </header>
 
@@ -494,6 +506,7 @@ export function TaskDetail({
             <MetaRow k="skip_plan" v={String(task.skip_plan)} />
             <MetaRow k="skip_plan_review" v={String(task.skip_plan_review)} />
             <MetaRow k="skip_ai_review" v={String(task.skip_ai_review)} />
+            <MetaRow k="auto_publish" v={String(task.auto_publish)} />
             <MetaRow k="created_at" v={fmt(task.created_at)} />
             <MetaRow k="started_at" v={fmt(task.started_at)} />
             <MetaRow k="stage_entered_at" v={fmt(task.stage_entered_at)} />
@@ -529,18 +542,28 @@ export function TaskDetail({
                   </h3>
                   <p className="text-xs text-text-2">{reviewContext.message}</p>
                   {task.delivery_url ? (
-                    <a
-                      href={task.delivery_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={cn(
-                        "mt-2 inline-flex items-center gap-1.5 text-xs font-mono hover:underline underline-offset-2",
-                        reviewContext.kind === "conflict" ? "text-danger" : "text-success",
-                      )}
-                    >
-                      <GitPullRequest className="h-3 w-3 shrink-0" />
-                      Open PR
-                    </a>
+                    task.delivery_url.startsWith("local:") ? (
+                      <span
+                        className="mt-2 inline-flex items-center gap-1.5 text-xs font-mono text-purple-500"
+                        title={`Local merge to main · ${task.delivery_url.slice("local:".length)}`}
+                      >
+                        <GitMerge className="h-3 w-3 shrink-0" />
+                        Local merge · {task.delivery_url.slice("local:".length)}
+                      </span>
+                    ) : (
+                      <a
+                        href={task.delivery_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={cn(
+                          "mt-2 inline-flex items-center gap-1.5 text-xs font-mono hover:underline underline-offset-2",
+                          reviewContext.kind === "conflict" ? "text-danger" : "text-success",
+                        )}
+                      >
+                        <GitPullRequest className="h-3 w-3 shrink-0" />
+                        Open PR
+                      </a>
+                    )
                   ) : null}
                   {reviewContext.showSolveWithSonnet ? (
                     <button

@@ -187,6 +187,40 @@ export function ProjectForm(props: Mode) {
         </div>
       </div>
 
+      {props.kind === "edit" ? (
+        <div className="border-t border-border pt-4 space-y-3">
+          <div>
+            <Label>Publishing policy</Label>
+            <p className="text-xs text-text-2">
+              Read-only here. <code>null</code> = auto-detected from the repo&apos;s
+              remote. Editing these (and the autonomy toggle below) is a behavior
+              change, gated to a follow-up — see session 06.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <PolicyRow label="Create PR" value={existing?.create_pr} />
+            <PolicyRow label="Push remote" value={existing?.push_remote} />
+            <PolicyRow label="Merge to main" value={existing?.merge_to_main} />
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-sm border border-warning/40 bg-warning/5 px-3 py-2">
+            <div>
+              <Label>
+                Allow auto-finish
+                <span className="text-warning ml-1 text-xs">⚠ dangerous</span>
+              </Label>
+              <p className="text-xs text-text-2">
+                When on, tasks armed with <code>auto_publish</code> skip the
+                deliverable review and merge to DONE unattended. Double-gated by the
+                task flag; AI review stays on.
+              </p>
+            </div>
+            <span className="font-mono text-xs shrink-0">
+              {existing?.allow_auto_finish ? "ON" : "off"}
+            </span>
+          </div>
+        </div>
+      ) : null}
+
       </DialogBody>
       <DialogFooter className="justify-between">
         <div className="flex items-center gap-2">
@@ -221,6 +255,24 @@ export function ProjectForm(props: Mode) {
         </div>
       </DialogFooter>
     </form>
+  );
+}
+
+function PolicyRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: boolean | null | undefined;
+}) {
+  const text = value == null ? "auto" : value ? "on" : "off";
+  const tone =
+    value == null ? "text-text-2" : value ? "text-success" : "text-text-3";
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-sm border border-border bg-surface-2 px-2.5 py-1.5">
+      <span className="text-xs text-text-2">{label}</span>
+      <span className={`font-mono text-xs ${tone}`}>{text}</span>
+    </div>
   );
 }
 

@@ -16,6 +16,7 @@ import {
   Pencil,
   Upload,
   XCircle,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 import type { Project, Task, TaskStatus } from "@/db/schema";
@@ -187,6 +188,22 @@ export function TaskCard({
               <span className="inline-flex items-center gap-0.5 text-[10px] text-text-3 shrink-0">
                 <FastForward className="h-2.5 w-2.5" />
                 <span className="font-mono">×{skipLabels.length}</span>
+              </span>
+            </Tooltip>
+          ) : null}
+          {task.auto_publish ? (
+            <Tooltip
+              title="Auto-finish armed"
+              description="Skips the deliverable review and merges to DONE automatically (still double-gated by the project's allow_auto_finish; AI review stays on)."
+              side="top"
+            >
+              <span
+                role="img"
+                aria-label="Auto-finish armed"
+                className="inline-flex items-center gap-0.5 text-[10px] text-warning shrink-0"
+              >
+                <Zap className="h-2.5 w-2.5" />
+                <span className="font-mono">auto</span>
               </span>
             </Tooltip>
           ) : null}
