@@ -280,12 +280,15 @@ export function TaskDetail({
       };
     }
     if (kind === "deliverable") {
+      const isBranch = task.delivery_url?.startsWith("branch:") ?? false;
       return {
         kind,
         title: "Deliverable review",
-        message: project?.has_repo
-          ? "Review the PR. Approve to squash-merge to main, or send back to IMPLEMENTING for a redo."
-          : "Review the published files. Approve to mark DONE, or send back to IMPLEMENTING for a redo.",
+        message: !project?.has_repo
+          ? "Review the published files. Approve to mark DONE, or send back to IMPLEMENTING for a redo."
+          : isBranch
+            ? "No PR (create_pr off). The branch is on origin. Approve to merge it into main and push, or send back to IMPLEMENTING for a redo."
+            : "Review the PR. Approve to squash-merge to main, or send back to IMPLEMENTING for a redo.",
         showSolveWithSonnet: false,
       };
     }
@@ -299,6 +302,7 @@ export function TaskDetail({
   }, [
     task.status,
     task.pending_review_kind,
+    task.delivery_url,
     project?.has_repo,
     config.publishing_solve_conflicts,
   ]);
@@ -633,11 +637,22 @@ export function TaskDetail({
                           task.status === "CANCELED"
                             ? RotateCcw
                             : INTENT_STYLE[intent].icon;
-                        return (
+                        // Approving a PR-less (create_pr off) deliverable merges
+                        // straight to main + pushes origin — confirm the unguarded
+                        // write before it happens.
+                        const needsBranchConfirm =
+                          intent === "approve" &&
+                          task.pending_review_kind === "deliverable" &&
+                          (task.delivery_url?.startsWith("branch:") ?? false);
+                        const btn = (
                           <button
                             key={s}
                             type="button"
-                            onClick={() => transitionTo(s)}
+                            onClick={
+                              needsBranchConfirm
+                                ? undefined
+                                : () => transitionTo(s)
+                            }
                             disabled={busy || isSolving}
                             className={cn(
                               "w-full flex items-center gap-2.5 h-9 px-3 rounded-md border text-sm font-medium transition-colors",
@@ -657,6 +672,20 @@ export function TaskDetail({
                             </span>
                           </button>
                         );
+                        if (needsBranchConfirm) {
+                          return (
+                            <ConfirmDialog
+                              key={s}
+                              title="Merge to main — no PR"
+                              description={`PR creation is off for this project. Approving merges branch ${task.branch} into ${project?.default_branch ?? "main"} and pushes to origin, then marks the task DONE.`}
+                              confirmLabel="Merge & finish"
+                              busyLabel="Merging…"
+                              trigger={btn}
+                              onConfirm={() => transitionTo(s)}
+                            />
+                          );
+                        }
+                        return btn;
                       })}
                   </div>
                 </div>

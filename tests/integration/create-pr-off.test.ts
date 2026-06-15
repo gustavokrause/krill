@@ -1,7 +1,7 @@
 import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
@@ -103,12 +103,12 @@ test("publishing with create_pr=off pushes the branch, opens no PR, stops at rev
     .from(tables.comments)
     .where(eq(tables.comments.task_id, task.id))
     .all()
-    .find((c) => /PR creation is disabled/.test(c.text));
-  assert.ok(comment, "expected a 'PR creation is disabled' AI comment");
+    .find((c) => /no PR \(create_pr off\)/.test(c.text));
+  assert.ok(comment, "expected a 'no PR (create_pr off)' AI comment");
   assert.match(comment.text, new RegExp(branch));
 });
 
-test("auto-finish cannot apply when create_pr=off (no merge target)", async () => {
+test("auto-finish with create_pr=off merges directly to main and pushes origin", async () => {
   const repo = initRepoWithRemote();
   const wtRoot = mkdtempSync(join(tmpdir(), "krill-cproff-wt2-"));
   tmps.push(wtRoot);
@@ -149,6 +149,21 @@ test("auto-finish cannot apply when create_pr=off (no merge target)", async () =
   await runPublishing("worker-cpa");
 
   const t = db.select().from(tables.tasks).where(eq(tables.tasks.id, task.id)).get()!;
-  assert.equal(t.status, "NEEDS_REVIEW", "auto-finish blocked → human gate holds");
-  assert.equal(t.pending_review_kind, "deliverable");
+  assert.equal(t.status, "DONE", "auto-finished past the gate, no PR");
+  // merged into the local main checkout
+  assert.ok(existsSync(join(repo, "feature.txt")), "main has the merged file");
+  // and main was pushed to origin (origin/main now carries the change)
+  const remoteMain = execFileSync("git", ["ls-tree", "-r", "--name-only", "origin/main"], {
+    cwd: repo,
+    encoding: "utf8",
+  });
+  assert.match(remoteMain, /feature\.txt/, "origin/main has the merged file");
+
+  const comment = db
+    .select()
+    .from(tables.comments)
+    .where(eq(tables.comments.task_id, task.id))
+    .all()
+    .find((c) => /merged .* directly into/.test(c.text));
+  assert.ok(comment, "expected an 'auto-finished — merged directly' comment");
 });
