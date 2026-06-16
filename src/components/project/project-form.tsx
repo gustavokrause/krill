@@ -57,6 +57,10 @@ export function ProjectForm(props: Mode) {
   const [allowAutoFinish, setAllowAutoFinish] = useState(
     existing?.allow_auto_finish ?? false,
   );
+  const [deleteBranchOnDone, setDeleteBranchOnDone] = useState(
+    existing?.delete_branch_on_done ?? true,
+  );
+  const [draftPr, setDraftPr] = useState(existing?.draft_pr ?? false);
   const [showLegend, setShowLegend] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -93,6 +97,8 @@ export function ProjectForm(props: Mode) {
           push_remote: pushRemote,
           merge_to_main: mergeToMain,
           allow_auto_finish: allowAutoFinish,
+          delete_branch_on_done: deleteBranchOnDone,
+          draft_pr: draftPr,
         };
         if (hasRepoOverride !== undefined) body.has_repo = hasRepoOverride;
         await api.patchProject(props.project.id, body);
@@ -134,6 +140,17 @@ export function ProjectForm(props: Mode) {
       throw err;
     }
   };
+
+  // Effective repo state + which policy dials are inert given the others.
+  const isRepo = hasRepoOverride ?? existing?.has_repo ?? false;
+  const pushOff = pushRemote === false;
+  const prOff = createPr === false;
+  const mergeOff = mergeToMain === false;
+  const draftEffective = draftPr && !prOff && !pushOff;
+  // create_pr only read in the push flow; auto-finish/branch-delete need a merge.
+  const createPrInert = pushOff;
+  const autoFinishInert = mergeOff || draftEffective;
+  const deleteBranchInert = mergeOff;
 
   return (
     <form onSubmit={onSubmit} className="flex flex-col flex-1 min-h-0 max-w-4xl">
@@ -246,12 +263,20 @@ export function ProjectForm(props: Mode) {
               ref to open a PR or merge by hand.
             </p>
           </div>
+          {!isRepo ? (
+            <p className="text-xs text-text-3">
+              No git repo — publishing policy applies to repos only. The
+              deliverable is copied into the project folder for review instead.
+            </p>
+          ) : (
+          <>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <PolicyRow
               label="Create PR"
               value={createPr}
               onChange={setCreatePr}
-              hint="auto: open a PR only if the repo has a remote. on: always try (fails on a remote-less repo). off: no PR — push the branch only."
+              disabled={createPrInert}
+              hint="auto: open a PR only if the repo has a remote. on: always try (fails on a remote-less repo). off: no PR — push the branch only. Inert when Push remote is off (local flow has no PR)."
             />
             <PolicyRow
               label="Push remote"
@@ -267,19 +292,63 @@ export function ProjectForm(props: Mode) {
               hint="auto: merge into main on finish. off: never merge — leave the PR/branch for you to merge by hand. (on would behave identically to auto, so it's hidden.)"
             />
           </div>
-          <div className="flex items-center justify-between gap-3 rounded-sm border border-warning/40 bg-warning/5 px-3 py-2">
+          <div
+            className={`flex items-center justify-between gap-3 rounded-sm border border-warning/40 bg-warning/5 px-3 py-2 ${autoFinishInert ? "opacity-50" : ""}`}
+          >
             <div>
               <Label>
                 Allow auto-finish
                 <span className="text-warning ml-1 text-xs">⚠ dangerous</span>
               </Label>
               <p className="text-xs text-text-2">
-                When on, tasks armed with <code>auto_publish</code> skip the
-                deliverable review and merge to DONE unattended. Double-gated by the
-                task flag; AI review stays on.
+                {autoFinishInert
+                  ? draftEffective
+                    ? "No effect — draft PRs are never auto-merged."
+                    : "No effect — Merge to main is off, so nothing auto-finishes."
+                  : "When on, tasks armed with auto_publish skip the deliverable review and merge to DONE unattended. Double-gated by the task flag; AI review stays on."}
               </p>
             </div>
-            <Switch checked={allowAutoFinish} onCheckedChange={setAllowAutoFinish} />
+            <Switch
+              checked={allowAutoFinish && !autoFinishInert}
+              onCheckedChange={setAllowAutoFinish}
+              disabled={autoFinishInert}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-8">
+            <div
+              className={`flex items-center justify-between gap-3 ${deleteBranchInert ? "opacity-50" : ""}`}
+            >
+              <div>
+                <Label>Delete branch on done</Label>
+                <p className="text-xs text-text-2">
+                  {deleteBranchInert
+                    ? "No effect — Merge to main is off, so the branch is never merged and is always kept."
+                    : "Remove the task branch (local + remote) when it reaches DONE — only when the work was actually merged. Off keeps every branch."}
+                </p>
+              </div>
+              <Switch
+                checked={deleteBranchOnDone && !deleteBranchInert}
+                onCheckedChange={setDeleteBranchOnDone}
+                disabled={deleteBranchInert}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label>Draft PRs</Label>
+                <p className="text-xs text-text-2">
+                  {createPr === false || pushRemote === false
+                    ? "No effect — needs Create PR and Push remote on (PR flow)."
+                    : "Open pull requests as drafts. Not auto-merged; Approve marks ready + squash-merges."}
+                </p>
+              </div>
+              <Switch
+                checked={draftPr && createPr !== false && pushRemote !== false}
+                onCheckedChange={setDraftPr}
+                disabled={createPr === false || pushRemote === false}
+              />
+            </div>
           </div>
 
           <div className="rounded-sm border border-info/40 bg-info/5 px-3 py-2 space-y-2">
@@ -298,6 +367,8 @@ export function ProjectForm(props: Mode) {
             </div>
             {showLegend ? <PolicyLegend /> : null}
           </div>
+          </>
+          )}
         </div>
       ) : null}
 
@@ -442,6 +513,7 @@ function PolicyRow({
   onChange,
   hint,
   hideOn = false,
+  disabled = false,
 }: {
   label: string;
   value: boolean | null;
@@ -449,6 +521,7 @@ function PolicyRow({
   hint?: string;
   // Hide the "on" option where it's behaviorally identical to "auto" (merge_to_main).
   hideOn?: boolean;
+  disabled?: boolean;
 }) {
   // With "on" hidden, true and null both mean "auto" (same runtime behavior).
   const current = hideOn
@@ -461,7 +534,9 @@ function PolicyRow({
         ? "on"
         : "off";
   return (
-    <div className="flex items-center justify-between gap-2 rounded-sm border border-border bg-surface-2 px-2.5 py-1.5">
+    <div
+      className={`flex items-center justify-between gap-2 rounded-sm border border-border bg-surface-2 px-2.5 py-1.5 ${disabled ? "opacity-50" : ""}`}
+    >
       <span className="inline-flex items-center gap-1 text-xs text-text-2">
         {label}
         {hint ? (
@@ -477,6 +552,7 @@ function PolicyRow({
         onValueChange={(v) =>
           onChange(v === "auto" ? null : v === "on")
         }
+        disabled={disabled}
       >
         <SelectTrigger className="h-7 w-24 font-mono text-xs">
           <SelectValue />
