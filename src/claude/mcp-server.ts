@@ -13,6 +13,7 @@ import {
   task_append_comment,
   task_context,
   task_decide,
+  task_seed_followup,
   task_set_affected_paths,
   task_set_checklist,
   task_set_plan,
@@ -25,7 +26,8 @@ export type ToolName =
   | "task_set_checklist"
   | "task_set_affected_paths"
   | "task_append_comment"
-  | "task_decide";
+  | "task_decide"
+  | "task_seed_followup";
 
 export const TOOL_REGISTRY = {
   task_context: (ctx: McpAuthContext) => task_context(ctx),
@@ -45,4 +47,8 @@ export const TOOL_REGISTRY = {
     ctx: McpAuthContext,
     args: { outcome: "approve" | "decline"; reason: string },
   ) => task_decide(ctx, args.outcome, args.reason),
+  task_seed_followup: (
+    ctx: McpAuthContext,
+    args: { title: string; description?: string },
+  ) => task_seed_followup(ctx, args.title, args.description),
 } as const;

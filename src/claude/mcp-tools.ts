@@ -5,6 +5,7 @@ import { db } from "@/db/client";
 import {
   CONFLICTS_BLOCKING_STATUSES,
   comments,
+  followups,
   globalConfig,
   projects,
   tasks,
@@ -32,6 +33,7 @@ const STAGE_GATES: Record<string, Stage[]> = {
     "publishing",
   ],
   task_decide: ["ai_review"],
+  task_seed_followup: ["planning", "implementing", "ai_review", "publishing"],
   task_context: [
     "todo_picker",
     "planning",
@@ -212,6 +214,33 @@ export function task_append_comment(
     .run();
   if (inserted[0]) broadcast({ type: "comment.appended", comment: inserted[0] });
   emitTaskUpdated(ctx.taskId);
+  return { ok: true, id };
+}
+
+/**
+ * Flag out-of-scope follow-up work the stage noticed but did NOT do. Records a
+ * follow-up for whale to pull into its inbox (krill→whale feedback) — it does
+ * NOT create a krill task. Keeps the current task tightly scoped.
+ */
+export function task_seed_followup(
+  ctx: McpAuthContext,
+  title: string,
+  description = "",
+) {
+  authorize(ctx, "task_seed_followup");
+  const task = loadTask(ctx.taskId);
+  const id = randomUUID();
+  db.insert(followups)
+    .values({
+      id,
+      task_id: ctx.taskId,
+      project_id: task.project_id,
+      title: title.trim(),
+      description: (description ?? "").trim(),
+      status: "open",
+      created_at: now(),
+    })
+    .run();
   return { ok: true, id };
 }
 
