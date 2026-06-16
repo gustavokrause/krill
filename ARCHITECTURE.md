@@ -224,7 +224,10 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
   spawn('claude', [
     '--model', MODEL_BY_STAGE[stage],            // claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5-20251001
     '--cwd', task.worktree_path || task.workspace_path || project.folder_path,
-    '--mcp-config', mcpConfigPath,                // tells Claude how to reach our MCP server
+    '--mcp-config', mcpConfigPath,                // our task MCP server (task_set_plan/decide/…)
+    // NOTE: NOT --strict-mcp-config by default — your USER MCP servers (e.g.
+    // Supabase from ~/.claude.json) load too, so a stage can make real external
+    // changes. Set KRILL_STRICT_MCP=1 to isolate to only the task server above.
     '--print',                                    // non-interactive
     '--input-format', 'text'
   ], { stdio: ['pipe', 'pipe', 'pipe'] });

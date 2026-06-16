@@ -513,7 +513,7 @@ through the old code path — recreate the task.
 │   ├── claude/
 │   │   ├── errors.ts                  — RateLimitError, TimeoutError, McpAuthError
 │   │   ├── mcp-auth.ts                — per-invocation bearer tokens
-│   │   ├── mcp-config.ts              — generates --mcp-config JSON
+│   │   ├── mcp-config.ts              — generates --mcp-config JSON (task server; user MCP also loads unless KRILL_STRICT_MCP=1)
 │   │   ├── mcp-server.ts              — TOOL_REGISTRY (JSON-RPC dispatch)
 │   │   ├── mcp-tools.ts               — task_context/set_plan/set_checklist/...
 │   │   ├── model-map.ts               — Stage → model id
