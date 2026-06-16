@@ -90,6 +90,20 @@ const TOOL_DEFINITIONS = [
       additionalProperties: false,
     },
   },
+  {
+    name: "task_seed_followup",
+    description:
+      "Flag out-of-scope follow-up work you noticed but did NOT do (keep THIS task tightly scoped — don't do it here). Records a follow-up for the strategy layer (whale) to pull in and plan; does NOT create a krill task. Use one call per distinct follow-up.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "short imperative title" },
+        description: { type: "string", description: "what + where (files/paths), why it's needed" },
+      },
+      required: ["title"],
+      additionalProperties: false,
+    },
+  },
 ] as const;
 
 function rpcError(id: JsonRpcId, code: number, message: string, data?: unknown) {
@@ -141,6 +155,11 @@ function callTool(
       return TOOL_REGISTRY.task_decide(
         ctx,
         args as { outcome: "approve" | "decline"; reason: string },
+      );
+    case "task_seed_followup":
+      return TOOL_REGISTRY.task_seed_followup(
+        ctx,
+        args as { title: string; description?: string },
       );
     default:
       throw new McpAuthError(`unknown tool ${name}`);

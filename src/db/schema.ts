@@ -282,6 +282,25 @@ export const blockers = sqliteTable(
   (t) => [index("blockers_status_idx").on(t.status)],
 );
 
+// -- FOLLOW-UPS (krill → whale feedback) --
+// A stage's AI flags out-of-scope work it noticed but didn't do. whale PULLS
+// open follow-ups (GET /api/followups) into its inbox as new dumps, then marks
+// them consumed — so the loop stays whale→krill (krill never calls whale).
+export const followups = sqliteTable(
+  "followups",
+  {
+    id: text("id").primaryKey(),
+    task_id: text("task_id"), // the task that surfaced it (lineage)
+    project_id: text("project_id").notNull(),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    status: text("status").notNull().default("open"), // open | consumed
+    created_at: integer("created_at").notNull(),
+    consumed_at: integer("consumed_at"),
+  },
+  (t) => [index("followups_status_idx").on(t.status)],
+);
+
 // -- COMMENTS (append-only) --
 
 export const comments = sqliteTable(
@@ -312,3 +331,4 @@ export type Comment = typeof comments.$inferSelect;
 export type NewComment = typeof comments.$inferInsert;
 export type GlobalConfig = typeof globalConfig.$inferSelect;
 export type Blocker = typeof blockers.$inferSelect;
+export type Followup = typeof followups.$inferSelect;
