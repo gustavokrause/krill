@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import type { Project, Task } from "@/db/schema";
 import { MODEL_BY_STAGE, type ModelStage } from "./model-map";
-import { RateLimitError, TimeoutError } from "./errors";
+import { BlockedError, RateLimitError, TimeoutError, classifyBlock } from "./errors";
 import { generateMcpConfig } from "./mcp-config";
 
 export type RunnerInput = {
@@ -49,9 +49,10 @@ export class RealClaudeRunner implements ClaudeRunner {
           MODEL_BY_STAGE[input.stage],
           "--mcp-config",
           cfg.path,
-          // Restrict the session to our per-invocation MCP config; ignore any
-          // user-scoped servers in ~/.claude.json.
-          "--strict-mcp-config",
+          // User MCP servers (e.g. Supabase) load alongside our task server so
+          // krill can make real changes — parity with whale. Set KRILL_STRICT_MCP=1
+          // to isolate to only our per-invocation config (ignore ~/.claude.json).
+          ...(process.env.KRILL_STRICT_MCP === "1" ? ["--strict-mcp-config"] : []),
           "--print",
           "--input-format",
           "text",
@@ -100,6 +101,26 @@ export class RealClaudeRunner implements ClaudeRunner {
         // exited itself, so Node reports a numeric code with signal=null.
         if (signal === "SIGTERM" || signal === "SIGKILL" || exitCode === 143 || exitCode === 137) {
           rejectP(new TimeoutError(`claude killed by signal after timeout (exit ${exitCode ?? signal})`));
+          return;
+        }
+
+        // Interactive block: an unauthenticated MCP / logged-out CLI answered with
+        // an OAuth URL or login prompt (often exit 0). Pause + file a blocker.
+        const block = classifyBlock(`${stdout}\n${stderr}`);
+        if (block) {
+          rejectP(
+            new BlockedError({
+              kind: block.kind,
+              summary:
+                block.kind === "cli_login"
+                  ? "The Claude CLI isn't logged in"
+                  : "An MCP server needs authentication",
+              detail: (stdout || stderr).slice(0, 600),
+              actionUrl: block.actionUrl,
+              taskId: input.task.id,
+              stage: input.stage,
+            }),
+          );
           return;
         }
 
