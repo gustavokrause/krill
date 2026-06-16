@@ -226,6 +226,9 @@ export const tasks = sqliteTable(
     push_remote: integer("push_remote", { mode: "boolean" }),
     merge_to_main: integer("merge_to_main", { mode: "boolean" }),
     draft_pr: integer("draft_pr", { mode: "boolean" }),
+    // Paused on an interactive block (MCP auth / CLI login the headless runner
+    // can't answer). claim() skips blocked tasks; resolving the blocker clears it.
+    blocked: integer("blocked", { mode: "boolean" }).notNull().default(false),
     claimed_until: integer("claimed_until"),
     claimed_by: text("claimed_by"),
     created_at: integer("created_at").notNull(),
@@ -257,6 +260,28 @@ export const tasks = sqliteTable(
   ],
 );
 
+// -- BLOCKERS (the unblock queue) --
+// A stage hit something interactive it can't answer headless (MCP auth, CLI
+// login). The task is flagged blocked (claim skips it); a human clears the
+// blocker and the next tick re-runs the stage.
+export const blockers = sqliteTable(
+  "blockers",
+  {
+    id: text("id").primaryKey(),
+    source: text("source").notNull().default("krill"),
+    kind: text("kind").notNull(), // mcp_auth | cli_login | permission | other
+    status: text("status").notNull().default("open"), // open | resolved | dismissed
+    task_id: text("task_id"), // the paused task, when applicable
+    stage: text("stage"), // which stage was running
+    summary: text("summary").notNull(),
+    detail: text("detail").notNull().default(""),
+    action_url: text("action_url"),
+    created_at: integer("created_at").notNull(),
+    resolved_at: integer("resolved_at"),
+  },
+  (t) => [index("blockers_status_idx").on(t.status)],
+);
+
 // -- COMMENTS (append-only) --
 
 export const comments = sqliteTable(
@@ -286,3 +311,4 @@ export type NewTask = typeof tasks.$inferInsert;
 export type Comment = typeof comments.$inferSelect;
 export type NewComment = typeof comments.$inferInsert;
 export type GlobalConfig = typeof globalConfig.$inferSelect;
+export type Blocker = typeof blockers.$inferSelect;

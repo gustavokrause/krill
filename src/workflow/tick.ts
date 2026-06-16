@@ -2,12 +2,14 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { globalConfig } from "@/db/schema";
-import { RateLimitError } from "@/claude/errors";
+import { BlockedError, RateLimitError } from "@/claude/errors";
 import {
   bumpBackoff,
   isBackoffActive,
   resetBackoff,
 } from "./backoff";
+import { addBlocker, setTaskBlocked } from "./blockers";
+import { releaseClaim } from "./transition";
 import { runAiReview } from "./stages/ai-review";
 import { runImplementing } from "./stages/implementing";
 import { runPlanning } from "./stages/planning";
@@ -33,7 +35,8 @@ export type TickResult =
         | "no_task";
     }
   | { ran: true; taskId: string }
-  | { ran: false; reason: "rate_limited"; until: number };
+  | { ran: false; reason: "rate_limited"; until: number }
+  | { ran: false; reason: "blocked"; taskId: string };
 
 export async function tick(stage: Stage): Promise<TickResult> {
   const cfg = db
@@ -68,6 +71,22 @@ export async function tick(stage: Stage): Promise<TickResult> {
         `[tick:${stage}] rate-limit; backoff until ${entry.nextAttemptAt} (attempt ${entry.attempts})`,
       );
       return { ran: false, reason: "rate_limited", until: entry.nextAttemptAt };
+    }
+    if (err instanceof BlockedError) {
+      // Pause, not fail: flag the task blocked (claim skips it), release the
+      // claim, and file a blocker. Resolving it re-runs the stage.
+      setTaskBlocked(err.taskId, true);
+      releaseClaim(err.taskId, workerId);
+      addBlocker({
+        kind: err.kind,
+        task_id: err.taskId,
+        stage: err.stage,
+        summary: `${err.message} (${err.stage} ${err.taskId})`,
+        detail: err.detail,
+        action_url: err.actionUrl ?? null,
+      });
+      console.warn(`[tick:${stage}] blocked ${err.taskId}: ${err.message}`);
+      return { ran: false, reason: "blocked", taskId: err.taskId };
     }
     console.error(`[tick:${stage}] handler error:`, err);
     throw err;
