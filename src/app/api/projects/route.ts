@@ -41,6 +41,8 @@ export async function POST(req: NextRequest) {
           push_remote: body.push_remote ?? null,
           merge_to_main: body.merge_to_main ?? null,
           allow_auto_finish: body.allow_auto_finish ?? false,
+          delete_branch_on_done: body.delete_branch_on_done ?? true,
+          draft_pr: body.draft_pr ?? false,
           task_counter: 0,
           created_at: ts,
           updated_at: ts,

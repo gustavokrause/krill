@@ -58,6 +58,8 @@ export function createProject(opts: {
   push_remote?: boolean | null;
   merge_to_main?: boolean | null;
   allow_auto_finish?: boolean;
+  delete_branch_on_done?: boolean;
+  draft_pr?: boolean;
 }): schema.Project {
   const now = Math.floor(Date.now() / 1000);
   const rows = db
@@ -75,6 +77,8 @@ export function createProject(opts: {
       push_remote: opts.push_remote ?? null,
       merge_to_main: opts.merge_to_main ?? null,
       allow_auto_finish: opts.allow_auto_finish ?? false,
+      delete_branch_on_done: opts.delete_branch_on_done ?? true,
+      draft_pr: opts.draft_pr ?? false,
       task_counter: 0,
       created_at: now,
       updated_at: now,
@@ -128,6 +132,10 @@ export function createTask(
       skip_plan_review: opts.skip_plan_review ?? false,
       skip_ai_review: opts.skip_ai_review ?? false,
       auto_publish: opts.auto_publish ?? false,
+      create_pr: opts.create_pr ?? null,
+      push_remote: opts.push_remote ?? null,
+      merge_to_main: opts.merge_to_main ?? null,
+      draft_pr: opts.draft_pr ?? null,
       claimed_until: opts.claimed_until ?? null,
       claimed_by: opts.claimed_by ?? null,
       pending_review_kind: opts.pending_review_kind ?? null,
