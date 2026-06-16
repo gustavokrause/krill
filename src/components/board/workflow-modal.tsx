@@ -319,6 +319,8 @@ const SKIP_EDGES: { from: string; to: string; label: string }[] = [
   { from: "TODO", to: "IMPLEMENTING", label: "skip_plan" },
   { from: "PLANNING", to: "IMPLEMENTING", label: "skip_plan_review" },
   { from: "IMPLEMENTING", to: "PUBLISHING", label: "skip_ai_review" },
+  // A2: auto_publish + project.allow_auto_finish → merge straight to DONE.
+  { from: "PUBLISHING", to: "DONE", label: "auto-finish" },
 ];
 
 function Arrowhead({ id, color }: { id: string; color: string }) {
@@ -566,11 +568,12 @@ function Legend() {
         </ul>
       </div>
       <div>
-        <div className="font-medium text-text mb-1">Gating: <span className="font-mono">project.has_repo</span></div>
+        <div className="font-medium text-text mb-1">Publish policy <span className="font-mono text-text-3">(project, task may override)</span></div>
         <ul className="space-y-0.5">
-          <li><span className="font-mono text-success">true</span> — <span className="font-mono text-info">PUBLISHING</span> opens PR + merges into <span className="font-mono">default_branch</span>; <span className="font-mono text-warning">NEEDS_REVIEW(deliverable)</span> approve merges PR.</li>
-          <li><span className="font-mono text-muted">false</span> — <span className="font-mono text-info">PUBLISHING</span> moves staged files to <span className="font-mono">folder_path</span>; <span className="font-mono text-warning">NEEDS_REVIEW(deliverable)</span> approve marks <span className="font-mono text-success">DONE</span>. <span className="font-mono text-warning">conflict</span> kind is repo-only.</li>
-          <li><span className="font-mono text-text-3">BACKLOG</span> rejects <span className="font-mono text-primary">mode=dev</span> on no-repo projects.</li>
+          <li><span className="font-mono text-text-3">no repo</span> — <span className="font-mono text-info">PUBLISHING</span> copies staged files to <span className="font-mono">folder_path</span>; approve → <span className="font-mono text-success">DONE</span>. Rejects <span className="font-mono text-primary">mode=dev</span>.</li>
+          <li><span className="font-mono">create_pr</span> + <span className="font-mono">push_remote</span> <span className="text-text-3">(auto = from the repo&apos;s remote)</span> — <span className="font-mono text-success">on</span>: open a PR; <span className="font-mono">create_pr off</span>: push the branch with <span className="text-text-3">no PR</span>; <span className="font-mono">push off</span>: local merge only.</li>
+          <li><span className="font-mono">merge_to_main</span> — <span className="font-mono text-success">on</span>: approve/auto-finish merges; <span className="font-mono text-muted">off</span>: krill never merges — you merge the PR/branch yourself, approve just marks <span className="font-mono text-success">DONE</span>.</li>
+          <li><span className="font-mono">draft_pr</span> — opens a draft; auto-finish suppressed; approve marks ready then squash-merges. <span className="font-mono">delete_branch_on_done</span> — remove the branch when merged.</li>
         </ul>
       </div>
       <div>
@@ -587,7 +590,16 @@ function Legend() {
           <li><span className="font-mono text-muted">skip_plan</span> — picker routes <span className="font-mono text-info">TODO</span> straight to <span className="font-mono text-info">IMPLEMENTING</span> (no PLANNING tick; setup runs lazily in IMPLEMENTING). Implies skip_plan_review.</li>
           <li><span className="font-mono text-muted">skip_plan_review</span> — auto-approve plan, no <span className="text-human">human</span> gate. Ignored when skip_plan is on.</li>
           <li><span className="font-mono text-muted">skip_ai_review</span> — <span className="font-mono text-info">IMPLEMENTING</span> jumps straight to <span className="font-mono text-info">PUBLISHING</span>.</li>
+          <li><span className="font-mono text-success">auto_publish</span> — with project <span className="font-mono">allow_auto_finish</span>, <span className="font-mono text-info">PUBLISHING</span> merges straight to <span className="font-mono text-success">DONE</span>, no <span className="text-human">human</span> gate (AI-review still runs). Suppressed when <span className="font-mono">merge_to_main</span> is off, the PR is a draft, or the merge would leave a remote behind.</li>
           <li><span className="font-mono text-warning">max_ai_decline_cycles</span> — after N <span className="text-ai">AI</span> declines/conflicts, force-move to <span className="font-mono text-warning">NEEDS_REVIEW(conflict)</span>.</li>
+        </ul>
+      </div>
+      <div>
+        <div className="font-medium text-text mb-1">Blocked &amp; MCP</div>
+        <ul className="space-y-0.5">
+          <li><span className="font-mono text-warning">blocked</span> — a stage hit something interactive it can&apos;t answer headless (MCP auth / CLI login). The task pauses (the picker skips it) and a <span className="font-mono">blocker</span> appears in the board banner. Clear it → the next tick re-runs the stage.</li>
+          <li><span className="text-ai">MCP</span> — stages load your user MCP servers (e.g. Supabase) alongside krill&apos;s task tools, so a task can make real external changes. <span className="font-mono">KRILL_STRICT_MCP=1</span> isolates to krill&apos;s tools only.</li>
+          <li><span className="text-ai">A3 breaker</span> — repeated auto-finish failures pause the project.</li>
         </ul>
       </div>
     </div>
