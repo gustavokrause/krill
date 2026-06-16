@@ -56,6 +56,37 @@ const COLUMNS: ColumnDef[] = [
 
 const EXPANDABLE_TITLES = new Set(["Intake", "In progress"]);
 
+// Terminal columns (DONE/CANCELED) accumulate forever — a time window keeps them
+// lean. Active columns self-drain, so the window NEVER touches them.
+const TERMINAL_STATUSES = new Set<TaskStatus>(["DONE", "CANCELED"]);
+type TermWindow = "week" | "lastweek" | "month" | "all";
+const TERM_WINDOWS: { value: TermWindow; label: string }[] = [
+  { value: "week", label: "This week" },
+  { value: "lastweek", label: "Last week" },
+  { value: "month", label: "This month" },
+  { value: "all", label: "All time" },
+];
+
+// [start, end) in unix seconds for a window; weeks start Monday.
+function termRange(w: TermWindow): { start: number; end: number } {
+  if (w === "all") return { start: -Infinity, end: Infinity };
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  const mondayOffset = (d.getDay() + 6) % 7; // Mon=0 … Sun=6
+  const startOfWeek = new Date(d);
+  startOfWeek.setDate(d.getDate() - mondayOffset);
+  const sow = startOfWeek.getTime() / 1000;
+  if (w === "week") return { start: sow, end: Infinity };
+  if (w === "lastweek") {
+    const prev = new Date(startOfWeek);
+    prev.setDate(startOfWeek.getDate() - 7);
+    return { start: prev.getTime() / 1000, end: sow };
+  }
+  // month
+  const som = new Date(d.getFullYear(), d.getMonth(), 1).getTime() / 1000;
+  return { start: som, end: Infinity };
+}
+
 const EXPANDED_STORAGE_KEY = "board.expandedColumns";
 
 const COLUMN_MIN_WIDTH_PX = 220;
@@ -484,6 +515,7 @@ export function Board({
     () => new Map(),
   );
   const [filter, setFilter] = useState<Set<TaskStatus>>(() => new Set());
+  const [termWindow, setTermWindow] = useState<TermWindow>("week");
   const [expandedColumns, setExpandedColumns] = useState<Set<string>>(
     () => new Set(EXPANDABLE_TITLES),
   );
@@ -693,6 +725,17 @@ export function Board({
     return scopedTasks.filter((t) => filter.has(t.status));
   }, [scopedTasks, filter]);
 
+  // Apply the time window to terminal tasks only; active tasks always show.
+  const windowed = useMemo(() => {
+    if (termWindow === "all") return visible;
+    const { start, end } = termRange(termWindow);
+    return visible.filter(
+      (t) =>
+        !TERMINAL_STATUSES.has(t.status) ||
+        (t.ended_at != null && t.ended_at >= start && t.ended_at < end),
+    );
+  }, [visible, termWindow]);
+
   const newTaskHref =
     projectFilter === "all"
       ? "/tasks/new"
@@ -733,6 +776,18 @@ export function Board({
           saving={automationSaving}
           onToggle={toggleAutomation}
         />
+        <Select value={termWindow} onValueChange={(v) => setTermWindow(v as TermWindow)}>
+          <SelectTrigger className="h-9 w-[128px]" title="Done / Canceled time window (by finish date)">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {TERM_WINDOWS.map((w) => (
+              <SelectItem key={w.value} value={w.value}>
+                {w.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <FilterMenu selected={filter} onChange={setFilter} />
         <WorkflowModal />
         <Link href={newTaskHref}>
@@ -745,10 +800,10 @@ export function Board({
       {/* Mobile + tablet: single-column list */}
       <div className="lg:hidden">
         <div className="space-y-2">
-          {visible.length === 0 ? (
+          {windowed.length === 0 ? (
             <EmptyState filter={filter} newTaskHref={newTaskHref} />
           ) : (
-            visible.map((t) => (
+            windowed.map((t) => (
               <TaskCard
                 key={t.id}
                 task={t}
@@ -781,7 +836,12 @@ export function Board({
               style={{ gridTemplateColumns }}
             >
             {COLUMNS.map((col) => {
-              const list = visible.filter((t) => col.statuses.includes(t.status));
+              const list = windowed.filter((t) => col.statuses.includes(t.status));
+              const isTerminal = col.statuses.some((s) => TERMINAL_STATUSES.has(s));
+              const total =
+                isTerminal && termWindow !== "all"
+                  ? visible.filter((t) => col.statuses.includes(t.status)).length
+                  : list.length;
               const isExpandable = EXPANDABLE_TITLES.has(col.title);
               const expanded = isExpandable && expandedColumns.has(col.title);
               const span = expanded ? SPAN_BY_COUNT[col.statuses.length] : "";
@@ -806,8 +866,11 @@ export function Board({
                   })()}
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-text-2 font-mono">
-                    {list.length}
+                  <span
+                    className="text-xs text-text-2 font-mono"
+                    title={total !== list.length ? `${list.length} in window · ${total} total` : undefined}
+                  >
+                    {total !== list.length ? `${list.length} of ${total}` : list.length}
                   </span>
                   {isExpandable ? (
                     <button
