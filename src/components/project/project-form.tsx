@@ -34,11 +34,9 @@ export function ProjectForm(props: Mode) {
   // Auto-fill slug from name until the user types one by hand (create only).
   const [slugTouched, setSlugTouched] = useState(props.kind === "edit");
   const [folder, setFolder] = useState(existing?.folder_path ?? "");
-  const [hasRepoOverride, setHasRepoOverride] = useState<boolean | undefined>(
-    existing?.has_repo,
-  );
+  // Empty on create → the server reads the branch from the repo (else "main").
   const [defaultBranch, setDefaultBranch] = useState(
-    existing?.default_branch ?? "main",
+    existing?.default_branch ?? "",
   );
   const [maxParallel, setMaxParallel] = useState(
     existing?.max_parallel_tasks ?? 1,
@@ -73,11 +71,11 @@ export function ProjectForm(props: Mode) {
           name,
           slug,
           folder_path: folder,
-          default_branch: defaultBranch,
           max_parallel_tasks: maxParallel,
           paused,
         };
-        if (hasRepoOverride !== undefined) body.has_repo = hasRepoOverride;
+        // Omit when blank so the server auto-detects the repo's default branch.
+        if (defaultBranch.trim()) body.default_branch = defaultBranch.trim();
         const p = await api.createProject(body);
         toast.push({
           variant: "success",
@@ -100,7 +98,6 @@ export function ProjectForm(props: Mode) {
           delete_branch_on_done: deleteBranchOnDone,
           draft_pr: draftPr,
         };
-        if (hasRepoOverride !== undefined) body.has_repo = hasRepoOverride;
         await api.patchProject(props.project.id, body);
         toast.push({ variant: "success", title: "Project updated" });
         // push lands on /projects; refresh re-resolves the @modal slot against
@@ -142,7 +139,7 @@ export function ProjectForm(props: Mode) {
   };
 
   // Effective repo state + which policy dials are inert given the others.
-  const isRepo = hasRepoOverride ?? existing?.has_repo ?? false;
+  const isRepo = existing?.has_repo ?? false;
   const pushOff = pushRemote === false;
   const prOff = createPr === false;
   const mergeOff = mergeToMain === false;
@@ -186,16 +183,19 @@ export function ProjectForm(props: Mode) {
           />
         </Field>
 
-        <Field
-          label="Default branch"
-          helper="Used only when the folder is a git repo."
-        >
-          <Input
-            value={defaultBranch}
-            onChange={(e) => setDefaultBranch(e.target.value)}
-            className="font-mono"
-          />
-        </Field>
+        {props.kind === "edit" && !isRepo ? null : (
+          <Field
+            label="Default branch"
+            helper="Leave blank to read it from the repo (else main)."
+          >
+            <Input
+              value={defaultBranch}
+              onChange={(e) => setDefaultBranch(e.target.value)}
+              className="font-mono"
+              placeholder="auto-detect"
+            />
+          </Field>
+        )}
       </div>
 
       <Field
@@ -235,19 +235,10 @@ export function ProjectForm(props: Mode) {
             </div>
             <Switch checked={paused} onCheckedChange={setPaused} />
           </div>
-
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <Label>has_repo override</Label>
-              <p className="text-xs text-text-2">
-                Leave unchanged to auto-detect `.git` at the folder path.
-              </p>
-            </div>
-            <Switch
-              checked={hasRepoOverride ?? existing?.has_repo ?? false}
-              onCheckedChange={(v) => setHasRepoOverride(v)}
-            />
-          </div>
+          <p className="text-xs text-text-3">
+            Git repo is auto-detected from <code>.git</code> at the folder path
+            {isRepo ? " — this project is a repo." : "."}
+          </p>
         </div>
       </div>
 

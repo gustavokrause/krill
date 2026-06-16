@@ -4,7 +4,7 @@ import { asc } from "drizzle-orm";
 import { db } from "@/db/client";
 import { projects } from "@/db/schema";
 import { apiErrorResponse, ruleViolation } from "@/lib/api/errors";
-import { detectHasRepo, resolveProjectPath } from "@/lib/api/util";
+import { detectDefaultBranch, detectHasRepo, resolveProjectPath } from "@/lib/api/util";
 import { projectCreateSchema } from "@/lib/api/validation";
 import { broadcast } from "@/lib/sse";
 import { now } from "@/workflow/types";
@@ -24,6 +24,11 @@ export async function POST(req: NextRequest) {
     const ts = now();
     const folder_path = resolveProjectPath(body.folder_path);
     const has_repo = body.has_repo ?? detectHasRepo(folder_path);
+    // Empty/omitted default branch → read it from the repo, else fall back to main.
+    const default_branch =
+      body.default_branch?.trim() ||
+      detectDefaultBranch(folder_path) ||
+      "main";
 
     try {
       const inserted = db
@@ -34,7 +39,7 @@ export async function POST(req: NextRequest) {
           slug: body.slug,
           folder_path,
           has_repo,
-          default_branch: body.default_branch ?? "main",
+          default_branch,
           max_parallel_tasks: body.max_parallel_tasks ?? 1,
           paused: body.paused ?? false,
           create_pr: body.create_pr ?? null,

@@ -100,7 +100,7 @@ export function TaskForm(props: Mode) {
           project_id: projectId,
           name,
           description,
-          mode,
+          mode: isRepo ? mode : "non-dev",
           priority,
           depends_on: parseCsv(dependsOn),
           conflicts_with: parseCsv(conflictsWith),
@@ -167,6 +167,10 @@ export function TaskForm(props: Mode) {
     }
   };
 
+  // dev mode + publish-policy overrides only apply to git repos.
+  const selectedProject = props.projects.find((p) => p.id === projectId);
+  const isRepo = selectedProject?.has_repo ?? false;
+
   return (
     <form onSubmit={onSubmit} className="flex flex-col flex-1 min-h-0 max-w-5xl">
       <DialogBody className="space-y-5">
@@ -174,7 +178,12 @@ export function TaskForm(props: Mode) {
         <Field label="Project" required>
           <Select
             value={projectId}
-            onValueChange={setProjectId}
+            onValueChange={(id) => {
+              setProjectId(id);
+              // Non-repo project can't run dev tasks — snap mode to non-dev.
+              const p = props.projects.find((x) => x.id === id);
+              if (!(p?.has_repo ?? false) && mode === "dev") setMode("non-dev");
+            }}
             disabled={props.kind === "edit"}
           >
             <SelectTrigger>
@@ -190,17 +199,26 @@ export function TaskForm(props: Mode) {
             </SelectContent>
           </Select>
         </Field>
-        <Field label="Mode" helper="dev requires the project to be a git repo.">
+        <Field
+          label="Mode"
+          helper={
+            projectId && !isRepo
+              ? "This project has no git repo — only non-dev tasks."
+              : "dev requires the project to be a git repo."
+          }
+        >
           <Select
-            value={mode}
+            value={isRepo ? mode : "non-dev"}
             onValueChange={(v) => setMode(v as "dev" | "non-dev")}
-            disabled={props.kind === "edit"}
+            disabled={props.kind === "edit" || !isRepo}
           >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="dev">dev</SelectItem>
+              <SelectItem value="dev" disabled={!isRepo}>
+                dev
+              </SelectItem>
               <SelectItem value="non-dev">non-dev</SelectItem>
             </SelectContent>
           </Select>
@@ -324,34 +342,36 @@ export function TaskForm(props: Mode) {
         </div>
       </div>
 
-      <div className="border-t border-border pt-4 space-y-3">
-        <button
-          type="button"
-          onClick={() => setShowPolicy((v) => !v)}
-          className="flex items-center gap-1.5 text-xs font-medium text-text-2 hover:text-text"
-        >
-          {showPolicy ? "▾" : "▸"} Publish policy override
-          <span className="text-text-3 font-normal">
-            (inherits the project; dev tasks on a repo)
-          </span>
-        </button>
-        {showPolicy ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <InheritRow label="Create PR" value={createPr} onChange={setCreatePr} />
-            <InheritRow
-              label="Push remote"
-              value={pushRemote}
-              onChange={setPushRemote}
-            />
-            <InheritRow
-              label="Merge to main"
-              value={mergeToMain}
-              onChange={setMergeToMain}
-            />
-            <InheritRow label="Draft PR" value={draftPr} onChange={setDraftPr} />
-          </div>
-        ) : null}
-      </div>
+      {isRepo && mode === "dev" ? (
+        <div className="border-t border-border pt-4 space-y-3">
+          <button
+            type="button"
+            onClick={() => setShowPolicy((v) => !v)}
+            className="flex items-center gap-1.5 text-xs font-medium text-text-2 hover:text-text"
+          >
+            {showPolicy ? "▾" : "▸"} Publish policy override
+            <span className="text-text-3 font-normal">
+              (inherits the project)
+            </span>
+          </button>
+          {showPolicy ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <InheritRow label="Create PR" value={createPr} onChange={setCreatePr} />
+              <InheritRow
+                label="Push remote"
+                value={pushRemote}
+                onChange={setPushRemote}
+              />
+              <InheritRow
+                label="Merge to main"
+                value={mergeToMain}
+                onChange={setMergeToMain}
+              />
+              <InheritRow label="Draft PR" value={draftPr} onChange={setDraftPr} />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       </DialogBody>
       <DialogFooter className="justify-between">
