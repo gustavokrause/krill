@@ -282,7 +282,10 @@ export function TaskDetail({
     if (kind === "deliverable") {
       const isBranch = task.delivery_url?.startsWith("branch:") ?? false;
       const isLocal = task.delivery_url?.startsWith("local:") ?? false;
+      const isPr = (task.delivery_url?.startsWith("http") ?? false);
       const mergeOff = project?.merge_to_main === false;
+      const draftPr =
+        isPr && (task.draft_pr ?? project?.draft_pr ?? false) === true;
       return {
         kind,
         title: "Deliverable review",
@@ -294,7 +297,9 @@ export function TaskDetail({
               ? "No PR (create_pr off). The branch is on origin. Approve to merge it into main and push, or send back to IMPLEMENTING for a redo."
               : isLocal
                 ? "Local merge — no PR. Approve to merge into main on this machine (origin is NOT pushed — push manually after), or send back to IMPLEMENTING."
-                : "Review the PR. Approve to squash-merge to main, or send back to IMPLEMENTING for a redo.",
+                : draftPr
+                  ? "Draft PR — not auto-merged. Approve to mark it ready and squash-merge, or send back to IMPLEMENTING for a redo."
+                  : "Review the PR. Approve to squash-merge to main, or send back to IMPLEMENTING for a redo.",
         showSolveWithSonnet: false,
       };
     }
@@ -309,8 +314,10 @@ export function TaskDetail({
     task.status,
     task.pending_review_kind,
     task.delivery_url,
+    task.draft_pr,
     project?.has_repo,
     project?.merge_to_main,
+    project?.draft_pr,
     config.publishing_solve_conflicts,
   ]);
 

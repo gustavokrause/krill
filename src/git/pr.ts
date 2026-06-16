@@ -40,11 +40,13 @@ export type OpenPrOpts = {
   head: string;
   title: string;
   body: string;
+  draft?: boolean;
 };
 
 /**
  * Idempotent PR open: if a PR already exists for the head branch, return
- * its URL. Otherwise `gh pr create` and return the new URL.
+ * its URL. Otherwise `gh pr create` and return the new URL. Pass draft to
+ * open it as a draft (`gh pr create --draft`).
  */
 export async function ensurePr(opts: OpenPrOpts): Promise<PrInfo> {
   const existing = await prForBranch(opts.cwd, opts.head);
@@ -62,6 +64,7 @@ export async function ensurePr(opts: OpenPrOpts): Promise<PrInfo> {
     "--body",
     opts.body,
   ];
+  if (opts.draft) args.push("--draft");
   const res = await execCmd("gh", args, { cwd: opts.cwd });
   throwIfFailed(res, "gh pr create");
 
@@ -70,6 +73,20 @@ export async function ensurePr(opts: OpenPrOpts): Promise<PrInfo> {
     throw new Error("gh pr create succeeded but pr lookup returned empty");
   }
   return created;
+}
+
+/**
+ * Mark a draft PR ready for review (`gh pr ready`). Idempotent: a PR that's
+ * already ready returns success. Used before merging a draft on Approve.
+ */
+export async function markPrReady(
+  repoCwd: string,
+  prUrl: string,
+): Promise<void> {
+  const res = await execCmd("gh", ["pr", "ready", prUrl], { cwd: repoCwd });
+  if (res.exitCode === 0) return;
+  if (res.stderr.toLowerCase().includes("already ready")) return;
+  throwIfFailed(res, "gh pr ready");
 }
 
 export async function addPrComment(

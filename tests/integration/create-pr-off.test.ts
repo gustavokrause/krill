@@ -37,6 +37,21 @@ after(() => {
   for (const d of tmps) rmSync(d, { recursive: true, force: true });
 });
 
+test("draft_pr is effective only in PR flow (create_pr + push on)", async () => {
+  const repo = initRepoWithRemote();
+  // PR flow (remote present, defaults auto): draft applies.
+  const prProject = createProject({ slug: "DR", has_repo: true, folder_path: repo, draft_pr: true });
+  assert.equal((await resolvePublishPolicy(prProject)).draftPr, true);
+
+  // push off → local flow → no PR → draft inert.
+  const localProject = createProject({ slug: "DL", has_repo: true, folder_path: repo, draft_pr: true, push_remote: false });
+  assert.equal((await resolvePublishPolicy(localProject)).draftPr, false);
+
+  // create_pr off → direct-to-main → no PR → draft inert.
+  const branchProject = createProject({ slug: "DB", has_repo: true, folder_path: repo, draft_pr: true, create_pr: false });
+  assert.equal((await resolvePublishPolicy(branchProject)).draftPr, false);
+});
+
 test("create_pr=off override keeps push_remote on but drops the PR", async () => {
   const repo = initRepoWithRemote();
   const project = createProject({

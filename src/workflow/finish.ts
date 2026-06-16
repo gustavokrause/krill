@@ -1,5 +1,5 @@
 import type { Project, Task } from "@/db/schema";
-import { mergePr, localMergeToMain, pushDefaultBranch } from "@/git";
+import { markPrReady, mergePr, localMergeToMain, pushDefaultBranch } from "@/git";
 import { resolveProjectPath } from "@/lib/api/util";
 import { resolvePublishPolicy } from "./publish-policy";
 
@@ -14,11 +14,13 @@ import { resolvePublishPolicy } from "./publish-policy";
  */
 export async function finishMerge(task: Task, project: Project): Promise<void> {
   if (!project.has_repo || !task.delivery_url) return;
-  const policy = await resolvePublishPolicy(project);
+  const policy = await resolvePublishPolicy(project, task);
   // merge_to_main off → krill never merges, for any delivery shape. The PR/branch
   // is left for the human to merge; callers mark DONE without integrating.
   if (!policy.mergeToMain) return;
   if (/^https?:\/\//.test(task.delivery_url)) {
+    // A draft PR can't be merged; Approve means ship it — un-draft, then merge.
+    if (policy.draftPr) await markPrReady(project.folder_path, task.delivery_url);
     await mergePr(project.folder_path, task.delivery_url, "squash");
   } else if (task.delivery_url.startsWith("local:") && task.branch) {
     await localMergeToMain(

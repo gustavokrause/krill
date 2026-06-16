@@ -76,19 +76,21 @@ async function deliverOrAutoFinish(
   // PR-less direct-to-main delivery (create_pr off): branch already pushed, no PR.
   const isBranch = !!task?.delivery_url?.startsWith("branch:");
   const isLocal = !!task?.delivery_url?.startsWith("local:");
-  const policy = await resolvePublishPolicy(project);
+  const policy = await resolvePublishPolicy(project, task);
   // Push off on a repo that HAS a remote: the local merge leaves origin behind.
   // Don't auto-finish that silently — a human must know to push it themselves.
   const localOnRemote =
     isLocal && (await hasRemote(resolveProjectPath(project.folder_path)));
   let autoFinishFailed = false;
-  // Auto-finish only when the project actually integrates (merge_to_main on) and
-  // we're not leaving a remote behind. Otherwise defer to the human gate.
+  // Auto-finish only when the project actually integrates (merge_to_main on), we
+  // aren't leaving a remote behind, and the PR isn't a draft (a WIP PR is never
+  // auto-merged). Otherwise defer to the human gate.
   if (
     task &&
     autoFinishEligible(task, project) &&
     policy.mergeToMain &&
-    !localOnRemote
+    !localOnRemote &&
+    !policy.draftPr
   ) {
     try {
       await finishMerge(task, project);
@@ -113,7 +115,13 @@ async function deliverOrAutoFinish(
   }
   // Human-gated landing — tell the reviewer what Approve will (or won't) do.
   if (!autoFinishFailed) {
-    if (!policy.mergeToMain) {
+    if (policy.draftPr) {
+      appendAiComment(
+        taskId,
+        "draft PR — not auto-merged. Approve to mark it ready and squash-merge, or finish it on GitHub.",
+        "NEEDS_REVIEW",
+      );
+    } else if (!policy.mergeToMain) {
       appendAiComment(
         taskId,
         `merge_to_main is off — krill won't merge this. Merge the ${isBranch ? "branch" : "PR"} yourself; Approve marks the task DONE without merging.`,
@@ -182,7 +190,7 @@ async function publishRepo(
   // Local path (A1): remote-less project. No origin reset, no PR, no push —
   // hand the branch to the deliverable gate; the merge-to-main happens locally
   // on approval (transition DONE).
-  const policy = await resolvePublishPolicy(project);
+  const policy = await resolvePublishPolicy(project, task);
   if (!policy.pushRemote) {
     const localUrl = `local:${task.branch}`;
     if (task.delivery_url !== localUrl) {
@@ -228,6 +236,7 @@ async function publishRepo(
       head: task.branch,
       title: `${task.id}: ${task.name}`,
       body: prBody(task.id, task.plan, task.checklist),
+      draft: policy.draftPr,
     });
     if (task.delivery_url !== pr.url) {
       db.update(tasks)
