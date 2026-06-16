@@ -25,6 +25,7 @@ import {
 } from "@/db/schema";
 import { api, type HealthSnapshot, type StuckEntry } from "@/lib/client/api";
 import { useEventSource } from "@/lib/client/use-event-source";
+import { BlockersBanner } from "@/components/board/blockers-banner";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -699,6 +700,7 @@ export function Board({
 
   return (
     <main className="flex-1 flex flex-col min-h-0 px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+      <BlockersBanner />
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <h1 className="hidden lg:block text-xl font-bold mr-2">Board</h1>
         <Link

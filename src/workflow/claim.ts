@@ -42,6 +42,7 @@ export function claim(input: ClaimInput): Task | null {
         .where(
           and(
             eq(tasks.status, status),
+            eq(tasks.blocked, false), // paused on an interactive block — skip
             or(isNull(tasks.claimed_until), lt(tasks.claimed_until, ts)),
             inArray(tasks.project_id, activeProjectIds),
           ),
