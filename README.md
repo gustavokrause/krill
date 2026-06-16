@@ -32,19 +32,31 @@ and the review decisions.
 
 ### Autonomy & publishing (A1–A3)
 
-- **Publish policy (A1)** — per project, `create_pr` / `push_remote` /
-  `merge_to_main` (null = auto-detect from the repo's remote). Remote-less repos
-  take the **local-merge path**: publish produces a `local:<branch>` deliverable,
-  approved → merged to main on this machine (no PR).
-- **Auto-finish (A2)** — a task with `auto_publish=true` **and** its project's
-  `allow_auto_finish=true` skips the deliverable-review gate and merges straight to
-  DONE. Double-gated; AI review still runs.
+- **Publish policy (A1)** — `create_pr` / `push_remote` / `merge_to_main` / `draft_pr`,
+  per **project** with optional per-**task** overrides (null = inherit; project null =
+  auto-detect from the repo's remote). `push_remote` is the master switch: on → PR flow
+  (or, with `create_pr` off, push the branch with **no PR**, direct-to-main on merge);
+  off → local merge. `merge_to_main` off → krill **never merges** (you merge the
+  PR/branch yourself; approve just marks DONE). `draft_pr` → open drafts (auto-finish
+  suppressed; approve marks ready then squash-merges). `delete_branch_on_done` removes
+  the branch once actually merged.
+- **Auto-finish (A2)** — `auto_publish=true` **and** project `allow_auto_finish=true`
+  skips the deliverable gate and merges straight to DONE (double-gated; AI review still
+  runs). Suppressed when `merge_to_main` is off, the PR is a draft, or push-off would
+  leave a remote behind.
 - **Circuit breaker (A3)** — ≥2 (or ≥30% in 1h) auto-finish failures **pauses** the
-  project; declining a task **cascade-cancels** its dependents. Stops a bad run
-  snowballing.
+  project; declining a task **cascade-cancels** its dependents.
+- **Blocker queue** — a stage that hits something interactive it can't answer headless
+  (MCP auth, CLI login) **pauses the task** (`blocked`; the picker skips it) and files a
+  blocker in the board banner. Clear it → the next tick re-runs the stage.
+- **MCP** — stages load your **user MCP servers** (e.g. Supabase) alongside krill's task
+  tools, so a task can make real external changes. `KRILL_STRICT_MCP=1` isolates to
+  krill's tools only. ⚠️ With auto-finish + Ludicrous this lets an autonomous task write
+  external systems unattended — opt projects in deliberately.
 
-These are set by the upstream strategy layer ([whale](../whale)); krill enforces
-the gates. Schema: migrations `0004` (publish policy) + `0005` (auto-finish).
+Publish policy + `auto_publish` are typically set by the upstream strategy layer
+([whale](../whale)); krill enforces the gates. Schema: migrations through `0007`
+(per-task policy, draft/branch-cleanup, blockers).
 
 ## Requirements
 
