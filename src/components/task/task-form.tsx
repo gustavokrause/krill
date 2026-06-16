@@ -64,6 +64,26 @@ export function TaskForm(props: Mode) {
   const [autoPublish, setAutoPublish] = useState(
     existing?.auto_publish ?? false,
   );
+  // Per-task publish-policy overrides. null = inherit the project setting.
+  const [createPr, setCreatePr] = useState<boolean | null>(
+    existing?.create_pr ?? null,
+  );
+  const [pushRemote, setPushRemote] = useState<boolean | null>(
+    existing?.push_remote ?? null,
+  );
+  const [mergeToMain, setMergeToMain] = useState<boolean | null>(
+    existing?.merge_to_main ?? null,
+  );
+  const [draftPr, setDraftPr] = useState<boolean | null>(
+    existing?.draft_pr ?? null,
+  );
+  const [showPolicy, setShowPolicy] = useState(
+    existing != null &&
+      (existing.create_pr != null ||
+        existing.push_remote != null ||
+        existing.merge_to_main != null ||
+        existing.draft_pr != null),
+  );
   const [busy, setBusy] = useState(false);
 
   const parseCsv = (s: string) =>
@@ -89,6 +109,10 @@ export function TaskForm(props: Mode) {
           skip_plan_review: skipPlanReview,
           skip_ai_review: autoPublish ? false : skipAiReview,
           auto_publish: autoPublish,
+          create_pr: createPr,
+          push_remote: pushRemote,
+          merge_to_main: mergeToMain,
+          draft_pr: draftPr,
         });
         toast.push({ variant: "success", title: `Created ${task.id}` });
         router.back();
@@ -105,6 +129,10 @@ export function TaskForm(props: Mode) {
           skip_plan_review: skipPlanReview,
           skip_ai_review: autoPublish ? false : skipAiReview,
           auto_publish: autoPublish,
+          create_pr: createPr,
+          push_remote: pushRemote,
+          merge_to_main: mergeToMain,
+          draft_pr: draftPr,
         });
         toast.push({ variant: "success", title: "Task updated" });
         router.back();
@@ -296,6 +324,35 @@ export function TaskForm(props: Mode) {
         </div>
       </div>
 
+      <div className="border-t border-border pt-4 space-y-3">
+        <button
+          type="button"
+          onClick={() => setShowPolicy((v) => !v)}
+          className="flex items-center gap-1.5 text-xs font-medium text-text-2 hover:text-text"
+        >
+          {showPolicy ? "▾" : "▸"} Publish policy override
+          <span className="text-text-3 font-normal">
+            (inherits the project; dev tasks on a repo)
+          </span>
+        </button>
+        {showPolicy ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <InheritRow label="Create PR" value={createPr} onChange={setCreatePr} />
+            <InheritRow
+              label="Push remote"
+              value={pushRemote}
+              onChange={setPushRemote}
+            />
+            <InheritRow
+              label="Merge to main"
+              value={mergeToMain}
+              onChange={setMergeToMain}
+            />
+            <InheritRow label="Draft PR" value={draftPr} onChange={setDraftPr} />
+          </div>
+        ) : null}
+      </div>
+
       </DialogBody>
       <DialogFooter className="justify-between">
         <div className="flex items-center gap-2">
@@ -356,6 +413,39 @@ function Field({
       </Label>
       {children}
       {helper ? <p className="text-xs text-text-2">{helper}</p> : null}
+    </div>
+  );
+}
+
+// Tri-state per-task override: inherit (null) / on / off.
+function InheritRow({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: boolean | null;
+  onChange: (v: boolean | null) => void;
+}) {
+  const current = value == null ? "inherit" : value ? "on" : "off";
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-sm border border-border bg-surface-2 px-2.5 py-1.5">
+      <span className="text-xs text-text-2">{label}</span>
+      <Select
+        value={current}
+        onValueChange={(v) =>
+          onChange(v === "inherit" ? null : v === "on")
+        }
+      >
+        <SelectTrigger className="h-7 w-24 font-mono text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="inherit">inherit</SelectItem>
+          <SelectItem value="on">on</SelectItem>
+          <SelectItem value="off">off</SelectItem>
+        </SelectContent>
+      </Select>
     </div>
   );
 }

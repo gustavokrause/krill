@@ -4,6 +4,7 @@ import { db } from "@/db/client";
 import { projects, tasks, type Task } from "@/db/schema";
 import { WORKTREE_RETAINED_STATUSES, type TaskStatus } from "@/db/schema";
 import { deleteLocalBranch, deleteRemoteBranch, removeWorktree } from "@/git";
+import { resolvePublishPolicy } from "./publish-policy";
 import { now } from "./types";
 
 const WORKTREE_RETAINED = new Set<TaskStatus>(WORKTREE_RETAINED_STATUSES);
@@ -57,16 +58,24 @@ export async function applyTransitionSideEffects(
     // and is non-fatal — a teardown hiccup never blocks the transition.
     // After a squash merge the local branch isn't an ancestor of main, so
     // -D (deleteLocalBranch) is required; -d would fail "not fully merged".
-    if (to === "DONE" && worktreeRemoved && task.branch) {
-      try {
-        await deleteLocalBranch(project.folder_path, task.branch);
-      } catch (err) {
-        console.warn(`local branch delete failed for ${task.id}:`, err);
-      }
-      try {
-        await deleteRemoteBranch(project.folder_path, task.branch);
-      } catch (err) {
-        console.warn(`remote branch delete failed for ${task.id}:`, err);
+    //
+    // Two gates: the project toggle (delete_branch_on_done), AND the work was
+    // actually merged. With merge_to_main off the branch reached DONE WITHOUT
+    // being merged — deleting it (force -D + remote) would destroy unmerged
+    // work the human still has to merge, so we keep it.
+    if (to === "DONE" && worktreeRemoved && task.branch && project.delete_branch_on_done) {
+      const policy = await resolvePublishPolicy(project, task);
+      if (policy.mergeToMain) {
+        try {
+          await deleteLocalBranch(project.folder_path, task.branch);
+        } catch (err) {
+          console.warn(`local branch delete failed for ${task.id}:`, err);
+        }
+        try {
+          await deleteRemoteBranch(project.folder_path, task.branch);
+        } catch (err) {
+          console.warn(`remote branch delete failed for ${task.id}:`, err);
+        }
       }
     }
   }

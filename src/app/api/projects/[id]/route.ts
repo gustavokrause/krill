@@ -65,6 +65,10 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         ...(body.allow_auto_finish !== undefined
           ? { allow_auto_finish: body.allow_auto_finish }
           : {}),
+        ...(body.delete_branch_on_done !== undefined
+          ? { delete_branch_on_done: body.delete_branch_on_done }
+          : {}),
+        ...(body.draft_pr !== undefined ? { draft_pr: body.draft_pr } : {}),
       })
       .where(eq(projects.id, id))
       .returning()

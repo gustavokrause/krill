@@ -154,6 +154,13 @@ export const projects = sqliteTable(
     allow_auto_finish: integer("allow_auto_finish", { mode: "boolean" })
       .notNull()
       .default(false),
+    // Delete the task branch (local + remote) on DONE, but only when the work
+    // was actually merged (see cleanup). Off keeps every branch for audit.
+    delete_branch_on_done: integer("delete_branch_on_done", { mode: "boolean" })
+      .notNull()
+      .default(true),
+    // Open PRs as drafts (gh pr create --draft). Project default; task may override.
+    draft_pr: integer("draft_pr", { mode: "boolean" }).notNull().default(false),
     task_counter: integer("task_counter").notNull().default(0),
     created_at: integer("created_at").notNull(),
     updated_at: integer("updated_at").notNull(),
@@ -213,6 +220,12 @@ export const tasks = sqliteTable(
     auto_publish: integer("auto_publish", { mode: "boolean" })
       .notNull()
       .default(false),
+    // Per-task publish-policy overrides. NULL = inherit the project setting
+    // (which itself may be NULL = auto-detect from the repo remote).
+    create_pr: integer("create_pr", { mode: "boolean" }),
+    push_remote: integer("push_remote", { mode: "boolean" }),
+    merge_to_main: integer("merge_to_main", { mode: "boolean" }),
+    draft_pr: integer("draft_pr", { mode: "boolean" }),
     claimed_until: integer("claimed_until"),
     claimed_by: text("claimed_by"),
     created_at: integer("created_at").notNull(),

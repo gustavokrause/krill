@@ -24,6 +24,8 @@ export const projectCreateSchema = z.object({
   push_remote: z.boolean().nullable().optional(),
   merge_to_main: z.boolean().nullable().optional(),
   allow_auto_finish: z.boolean().optional(),
+  delete_branch_on_done: z.boolean().optional(),
+  draft_pr: z.boolean().optional(),
 });
 
 export const projectPatchSchema = projectCreateSchema
@@ -43,6 +45,11 @@ export const taskCreateSchema = z.object({
   skip_plan_review: z.boolean().default(false),
   skip_ai_review: z.boolean().default(false),
   auto_publish: z.boolean().default(false),
+  // Per-task publish-policy overrides (null = inherit project).
+  create_pr: z.boolean().nullable().optional(),
+  push_remote: z.boolean().nullable().optional(),
+  merge_to_main: z.boolean().nullable().optional(),
+  draft_pr: z.boolean().nullable().optional(),
 });
 
 export const taskPatchSchema = z.object({
@@ -58,6 +65,10 @@ export const taskPatchSchema = z.object({
   skip_plan_review: z.boolean().optional(),
   skip_ai_review: z.boolean().optional(),
   auto_publish: z.boolean().optional(),
+  create_pr: z.boolean().nullable().optional(),
+  push_remote: z.boolean().nullable().optional(),
+  merge_to_main: z.boolean().nullable().optional(),
+  draft_pr: z.boolean().nullable().optional(),
   delivery_url: z.string().nullable().optional(),
 });
 
