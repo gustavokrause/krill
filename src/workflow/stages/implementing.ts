@@ -86,6 +86,32 @@ export async function runImplementing(
         .set({ affected_paths: diff, updated_at: now() })
         .where(eq(tasks.id, task.id))
         .run();
+
+      // Empty implementation: the runner committed nothing and the branch has
+      // no diff against base. Advancing would graduate an empty branch to
+      // PUBLISHING, where `gh pr create` fails forever ("No commits between
+      // <base> and <branch>") and head-of-line-blocks the publish queue. By
+      // design an empty result is a human-review event — route it to
+      // NEEDS_REVIEW here, at the source, instead of letting it rot downstream.
+      if (!sha && diff.length === 0) {
+        appendAiComment(
+          task.id,
+          `implementation produced no commits on \`${task.branch}\` — nothing to ship. Re-run IMPLEMENTING or cancel.`,
+          "NEEDS_REVIEW",
+        );
+        const parked = transitionStatus({
+          taskId: task.id,
+          from: "IMPLEMENTING",
+          to: "NEEDS_REVIEW",
+          pendingReviewKind: "deliverable",
+        });
+        if (parked) {
+          await applyTransitionSideEffects(task.id, "IMPLEMENTING", "NEEDS_REVIEW");
+        } else {
+          releaseClaim(task.id, workerId);
+        }
+        return task.id;
+      }
     } else {
       const scanned = scanWorkspace(cwd);
       db.update(tasks)
