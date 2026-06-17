@@ -429,6 +429,40 @@ Recovery is "human re-claims it":
    worktree on the active → non-active transition; PLANNING recreates it
    on the next pick.
 
+If the task is stranded because its **worker died** (see next section), prefer
+**Recover** — it re-runs the same stage in the existing worktree instead of
+restarting from BACKLOG.
+
+### Orphaned claim after a restart ("worker dead")
+
+A krill restart (or crash) kills every in-flight stage worker, but the task keeps
+the dead worker's claim — so it sits in its stage until the claim TTL lapses (the
+next tick then re-picks it). The board flags these **"worker dead"** with a
+countdown to that self-heal and a **Recover** button.
+
+- **Recover** (UI) or `POST /api/tasks/<id>/recover` force-releases the claim so
+  the next stage tick re-picks it immediately. Status is untouched; the worktree
+  and its edits are preserved (`ensureWorkspace` is idempotent — the stage re-runs
+  and commits whatever's there).
+- Detection is by per-boot generation: each claim is stamped with `claim_gen`
+  (the process boot id, exposed as `/api/health.boot_id`); a held claim whose
+  `claim_gen` ≠ the running boot id was orphaned by a dead process.
+- Nothing re-runs unattended beyond the existing TTL self-heal — recovery is
+  manual (or you wait out the TTL).
+
+**Avoid creating these**: `npm stop` / `npm run rebuild` (bridge) refuse while any
+task holds a live claim (`/api/health.active_claims > 0`) unless `--force`; the
+board footer reads **"safe to restart"** when idle.
+
+### MCP auth blocker won't resume from the captured link
+
+An `mcp_auth` blocker's OAuth URL is **single-use and process-scoped** — the
+`client_id` is dynamically registered and the `localhost` callback lives in the
+worker that already exited, so the saved link is dead on arrival (and isn't shown
+as a CTA). Fix: authenticate the MCP **once** in a live interactive session
+(`claude` → `/mcp` → authorize); the token caches and the headless runner reuses
+it. Then **Resume** the blocker.
+
 ### `SQLITE_BUSY` during heavy mutation
 
 WAL is on, busy_timeout is 5s. If you still see this, it's likely two
