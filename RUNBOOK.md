@@ -463,6 +463,19 @@ as a CTA). Fix: authenticate the MCP **once** in a live interactive session
 (`claude` → `/mcp` → authorize); the token caches and the headless runner reuses
 it. Then **Resume** the blocker.
 
+### TODO picker is off / nothing gets picked
+
+Most likely a **follow-up** paused it. When a task surfaces out-of-scope work it
+seeds a follow-up; krill then comments the origin task, files a persistent
+`followup` blocker (with the surfaced content in a read-only textarea), and sets
+`stage_enabled.todo_picker = false`. In-flight tasks keep running; only new picks
+stop. Clear it on the board: **Resume** on the follow-up blocker re-enables the
+picker (`resolveBlocker` special-cases `followup` → `setTodoPickerEnabled(true)`),
+**Dismiss** clears the warning but leaves the picker off (re-enable via the toggle).
+The warning is its own `blockers` row — independent of whale pulling/consuming the
+follow-up — so it persists until you act. If the picker is off with no follow-up
+blocker, someone toggled it manually (or via `PATCH /api/config`).
+
 ### `SQLITE_BUSY` during heavy mutation
 
 WAL is on, busy_timeout is 5s. If you still see this, it's likely two
