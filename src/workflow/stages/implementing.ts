@@ -96,7 +96,7 @@ export async function runImplementing(
       if (!sha && diff.length === 0) {
         appendAiComment(
           task.id,
-          `implementation produced no commits on \`${task.branch}\` — nothing to ship. Re-run IMPLEMENTING or cancel.`,
+          `no codebase changes — implementation produced no commits on \`${task.branch}\`, nothing to ship. Safe to mark DONE, or cancel; re-run IMPLEMENTING to retry.`,
           "NEEDS_REVIEW",
         );
         const parked = transitionStatus({

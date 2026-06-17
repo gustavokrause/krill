@@ -78,6 +78,11 @@ function labelFor(
   if (from === "NEEDS_REVIEW" && kind === "conflict" && to === "PUBLISHING") {
     return "Retry PUBLISHING";
   }
+  // Empty task → DONE isn't an "Approve" of a deliverable; it's accepting a
+  // no-op as complete.
+  if (from === "NEEDS_REVIEW" && kind === "empty" && to === "DONE") {
+    return "Mark DONE (no change)";
+  }
   return INTENT_STYLE[intent].label(to);
 }
 
@@ -137,8 +142,12 @@ function nextStatusesFor(task: Task): TaskStatus[] {
         case "conflict":
           return ["PUBLISHING", "IMPLEMENTING", "BACKLOG", "CANCELED"];
         case "empty":
-          // No artifact to approve — re-run implementation or shelve/cancel.
-          return ["IMPLEMENTING", "BACKLOG", "CANCELED"];
+          // Nothing was shipped, but a no-op can still be a valid close: the
+          // task may already be satisfied / need no change. Allow DONE (marks
+          // complete, no merge — there's no delivery_url) alongside re-run or
+          // shelve. CANCELED is reserved for "abandon" since it trips the
+          // auto-finish breaker and cascade-cancels dependents.
+          return ["DONE", "IMPLEMENTING", "BACKLOG", "CANCELED"];
         default:
           return ["BACKLOG", "CANCELED"];
       }
@@ -314,7 +323,7 @@ export function TaskDetail({
         kind,
         title: "Empty result",
         message:
-          "Implementation produced no commits — nothing to ship. Re-run IMPLEMENTING, or cancel the task.",
+          "Implementation produced no commits — nothing to ship. Mark DONE if no change was needed, re-run IMPLEMENTING, or cancel.",
         showSolveWithSonnet: false,
       };
     }
