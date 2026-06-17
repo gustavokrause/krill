@@ -15,6 +15,8 @@ import {
 } from "@/db/schema";
 import { resolveProjectPath } from "@/lib/api/util";
 import { broadcast } from "@/lib/sse";
+import { appendAiComment } from "@/workflow/comment";
+import { addBlocker, setTodoPickerEnabled } from "@/workflow/blockers";
 import { transitionStatus } from "@/workflow/transition";
 import { countAiAutoActions } from "@/workflow/loop-brake";
 import { now, type Stage } from "@/workflow/types";
@@ -230,17 +232,35 @@ export function task_seed_followup(
   authorize(ctx, "task_seed_followup");
   const task = loadTask(ctx.taskId);
   const id = randomUUID();
+  const cleanTitle = title.trim();
+  const cleanDesc = (description ?? "").trim();
   db.insert(followups)
     .values({
       id,
       task_id: ctx.taskId,
       project_id: task.project_id,
-      title: title.trim(),
-      description: (description ?? "").trim(),
+      title: cleanTitle,
+      description: cleanDesc,
       status: "open",
       created_at: now(),
     })
     .run();
+
+  // Trace it on the origin task, then pause auto-picking behind a persistent
+  // warning so a human reviews the surfaced work before krill picks more. The
+  // blocker carries the content (not derived from the followups row), so it
+  // survives the downstream consumer marking the follow-up consumed.
+  appendAiComment(ctx.taskId, `Seeded follow-up: ${cleanTitle}`, task.status);
+  addBlocker({
+    kind: "followup",
+    task_id: ctx.taskId,
+    stage: ctx.stage,
+    summary: `Follow-up surfaced by ${ctx.taskId} (${ctx.stage})`,
+    detail: cleanDesc ? `${cleanTitle}\n\n${cleanDesc}` : cleanTitle,
+    dedupe: false,
+  });
+  setTodoPickerEnabled(false);
+
   return { ok: true, id };
 }
 
