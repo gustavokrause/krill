@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import Link from "next/link";
 import {
   DndContext,
+  DragOverlay,
   PointerSensor,
   useDroppable,
   useSensor,
@@ -45,7 +46,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { TaskCard } from "./task-card";
+import { TaskCard, TaskCardPreview } from "./task-card";
+import { DRAG_ACTIVATION_PX } from "./drag-constants";
 import { WorkflowModal } from "./workflow-modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
@@ -540,9 +542,10 @@ export function Board({
 }) {
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [config, setConfig] = useState<GlobalConfig>(initialConfig);
-  const [activeStatus, setActiveStatus] = useState<TaskStatus | null>(null);
+  const [activeTask, setActiveTask] = useState<Task | null>(null);
+  const activeStatus = activeTask?.status ?? null;
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: DRAG_ACTIVATION_PX } }),
   );
   const [health, setHealth] = useState<HealthSnapshot | null>(null);
   const [stuckMap, setStuckMap] = useState<Map<string, StuckEntry>>(
@@ -689,12 +692,12 @@ export function Board({
   );
 
   const onDragStart = useCallback(({ active }: DragStartEvent) => {
-    setActiveStatus((active.data.current?.status as TaskStatus) ?? null);
-  }, []);
+    setActiveTask(tasks.find((t) => t.id === active.id) ?? null);
+  }, [tasks]);
 
   const onDragEnd = useCallback(
     ({ active, over }: DragEndEvent) => {
-      setActiveStatus(null);
+      setActiveTask(null);
       if (!over) return;
       const task = tasks.find((t) => t.id === active.id);
       if (!task) return;
@@ -721,7 +724,7 @@ export function Board({
     [tasks, upsertTask, toast],
   );
 
-  const onDragCancel = useCallback(() => setActiveStatus(null), []);
+  const onDragCancel = useCallback(() => setActiveTask(null), []);
 
   // SSE has no replay: a task pushed from whale (or any external create) while
   // this tab is backgrounded/disconnected emits a task.updated we never see, so
@@ -1133,6 +1136,9 @@ export function Board({
         })}
             </div>
           </div>
+          <DragOverlay>
+            {activeTask ? <TaskCardPreview task={activeTask} /> : null}
+          </DragOverlay>
           </DndContext>
         );
       })()}
