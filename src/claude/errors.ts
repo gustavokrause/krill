@@ -67,6 +67,10 @@ export function classifyBlock(
   if (!MCP_AUTH_RE.test(text)) return null;
   return {
     kind: LOGIN_RE.test(text) ? "cli_login" : "mcp_auth",
-    actionUrl: text.match(/https?:\/\/\S+/)?.[0],
+    // Stop at whitespace AND markdown/quote chars — models wrap URLs in **bold**
+    // / backticks / parens, and `\S+` would swallow the trailing delimiter into
+    // the URL (e.g. `…/mcp**`). Kept for logging; the URL is no longer persisted
+    // as a CTA (it's a single-use, process-scoped OAuth link — dead on arrival).
+    actionUrl: text.match(/https?:\/\/[^\s*`"'<>)\]}]+/)?.[0],
   };
 }

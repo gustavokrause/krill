@@ -1,0 +1,1 @@
+ALTER TABLE `tasks` ADD `claim_gen` text;

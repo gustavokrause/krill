@@ -38,6 +38,7 @@ export function transitionStatus(input: TransitionInput): boolean {
       updated_at: ts,
       claimed_until: null,
       claimed_by: null,
+      claim_gen: null,
       ...(input.startedAt !== undefined ? { started_at: input.startedAt } : {}),
       ...(input.endedAt !== undefined ? { ended_at: input.endedAt } : {}),
     })
@@ -66,8 +67,27 @@ export function releaseClaim(taskId: string, workerId: string): boolean {
   const ts = now();
   const result = db
     .update(tasks)
-    .set({ claimed_until: null, claimed_by: null, updated_at: ts })
+    .set({ claimed_until: null, claimed_by: null, claim_gen: null, updated_at: ts })
     .where(and(eq(tasks.id, taskId), eq(tasks.claimed_by, workerId)))
+    .run();
+  if (result.changes !== 1) return false;
+  const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+  if (task) broadcast({ type: "task.updated", task });
+  return true;
+}
+
+/**
+ * Force-release a claim regardless of which worker holds it. For recovering an
+ * orphaned claim (the claiming worker died with its process), so the next stage
+ * tick re-picks the task immediately instead of waiting out the claim TTL.
+ * Status is untouched — the task re-runs the same stage it was stranded in.
+ */
+export function forceReleaseClaim(taskId: string): boolean {
+  const ts = now();
+  const result = db
+    .update(tasks)
+    .set({ claimed_until: null, claimed_by: null, claim_gen: null, updated_at: ts })
+    .where(eq(tasks.id, taskId))
     .run();
   if (result.changes !== 1) return false;
   const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();

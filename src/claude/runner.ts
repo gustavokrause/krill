@@ -115,7 +115,15 @@ export class RealClaudeRunner implements ClaudeRunner {
                 block.kind === "cli_login"
                   ? "The Claude CLI isn't logged in"
                   : "An MCP server needs authentication",
-              detail: (stdout || stderr).slice(0, 600),
+              // Strip the OAuth URL + markdown noise: the link is single-use and
+              // process-scoped (dies with this worker), so showing it only misleads.
+              // Keep the surrounding guidance text (names which MCP needs auth).
+              detail: (stdout || stderr)
+                .replace(/https?:\/\/\S+/g, "")
+                .replace(/\*\*/g, "")
+                .replace(/\n{3,}/g, "\n\n")
+                .trim()
+                .slice(0, 500),
               actionUrl: block.actionUrl,
               taskId: input.task.id,
               stage: input.stage,

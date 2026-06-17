@@ -7,6 +7,12 @@ type Handlers = Partial<
   Record<EventType, (event: WorkflowEvent) => void>
 > & {
   any?: (event: WorkflowEvent) => void;
+  /**
+   * Fires on (re)connect. SSE has no replay — events emitted while the tab
+   * was disconnected (server restart, tab discarded/suspended) are lost. Use
+   * this to resync authoritative state once the stream is live again.
+   */
+  onOpen?: () => void;
 };
 
 /**
@@ -17,6 +23,7 @@ type Handlers = Partial<
 export function useEventSource(handlers: Handlers): void {
   useEffect(() => {
     const es = new EventSource("/api/stream");
+    es.onopen = () => handlers.onOpen?.();
     const wrap = (type: EventType) => {
       const fn = handlers[type];
       if (!fn && !handlers.any) return;

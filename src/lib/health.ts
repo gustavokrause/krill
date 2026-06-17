@@ -1,6 +1,6 @@
 import { statSync } from "node:fs";
 import { resolve } from "node:path";
-import { count, eq } from "drizzle-orm";
+import { count, eq, gt } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   globalConfig,
@@ -11,6 +11,7 @@ import {
   type TaskStatus,
 } from "@/db/schema";
 import { snapshotBackoff } from "@/workflow/backoff";
+import { getBootId } from "@/workflow/boot-id";
 import { findStuckTasks } from "@/workflow/stuck";
 import { listenerCount } from "@/lib/sse";
 
@@ -25,6 +26,13 @@ export type HealthSnapshot = {
   stuck: Array<{ taskId: string; stage: string; ageSec: number; maxSec: number }>;
   sse_listeners: number;
   pinned_claude_version: string | null;
+  // Current process boot id. A held claim whose claim_gen ≠ this was orphaned
+  // by a dead process — the client compares to flag "worker dead" tasks.
+  boot_id: string;
+  // Tasks with a live claim (claimed_until > now) — a worker is actively
+  // running a stage. Restarting now orphans them; the UI + scripts gate on this.
+  active_claims: number;
+  active_claim_ids: string[];
 };
 
 export function getHealth(): HealthSnapshot {
@@ -68,6 +76,14 @@ export function getHealth(): HealthSnapshot {
     maxSec: s.maxSec,
   }));
 
+  // Live claims = a worker is mid-stage right now. Restarting orphans these.
+  const nowTs = Math.floor(Date.now() / 1000);
+  const liveClaims = db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(gt(tasks.claimed_until, nowTs))
+    .all();
+
   return {
     db: { path: dbPath, size_bytes: size },
     automation_enabled: cfg?.automation_enabled ?? false,
@@ -79,6 +95,9 @@ export function getHealth(): HealthSnapshot {
     stuck,
     sse_listeners: listenerCount(),
     pinned_claude_version: process.env.CLAUDE_CODE_VERSION ?? null,
+    boot_id: getBootId(),
+    active_claims: liveClaims.length,
+    active_claim_ids: liveClaims.map((r) => r.id),
   };
 }
 

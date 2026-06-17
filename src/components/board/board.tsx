@@ -641,6 +641,43 @@ export function Board({
     setTasks((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  // Recover an orphaned-claim task: force-release the dead worker's claim so the
+  // next stage tick re-picks it now instead of waiting out the claim TTL.
+  const recover = useCallback(
+    async (id: string) => {
+      try {
+        upsertTask(await api.recoverTask(id));
+      } catch {
+        // SSE / next focus reconcile if the request raced a real change
+      }
+    },
+    [upsertTask],
+  );
+
+  // SSE has no replay: a task pushed from whale (or any external create) while
+  // this tab is backgrounded/disconnected emits a task.updated we never see, so
+  // the board looks stale until a manual reload. Resync the authoritative list
+  // whenever the tab regains visibility/focus or the stream reconnects.
+  const resync = useCallback(async () => {
+    try {
+      setTasks(await api.listTasks());
+    } catch {
+      // transient — SSE + the next focus/visibility tick will recover
+    }
+  }, []);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void resync();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", resync);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", resync);
+    };
+  }, [resync]);
+
   const clearStuck = useCallback((id: string) => {
     setStuckMap((prev) => {
       if (!prev.has(id)) return prev;
@@ -651,6 +688,7 @@ export function Board({
   }, []);
 
   useEventSource({
+    onOpen: resync,
     "task.updated": (e) => e.type === "task.updated" && upsertTask(e.task),
     "task.transitioned": (e) => {
       if (e.type !== "task.transitioned") return;
@@ -809,6 +847,8 @@ export function Board({
                 task={t}
                 project={byProject.get(t.project_id)}
                 stuck={stuckMap.get(t.id)}
+                bootId={health?.boot_id ?? null}
+                onRecover={recover}
               />
             ))
           )}
@@ -935,6 +975,8 @@ export function Board({
                                 task={t}
                                 project={byProject.get(t.project_id)}
                                 stuck={stuckMap.get(t.id)}
+                                bootId={health?.boot_id ?? null}
+                                onRecover={recover}
                               />
                             ))
                           )}
@@ -963,6 +1005,8 @@ export function Board({
                         task={t}
                         project={byProject.get(t.project_id)}
                         stuck={stuckMap.get(t.id)}
+                        bootId={health?.boot_id ?? null}
+                        onRecover={recover}
                       />
                     ))
                   )}
