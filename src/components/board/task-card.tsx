@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useDraggable } from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
 import {
   AlertTriangle,
   Bot,
@@ -108,6 +110,12 @@ export function TaskCard({
   onRecover?: (id: string) => void;
   isDraggable?: boolean;
 }) {
+  const { attributes, listeners, setNodeRef, transform } = useDraggable({
+    id: task.id,
+    data: { status: task.status },
+    disabled: !isDraggable,
+  });
+
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -150,18 +158,10 @@ export function TaskCard({
   return (
     <Link
       href={`/tasks/${task.id}`}
-      draggable={isDraggable}
-      onDragStart={
-        isDraggable
-          ? (e) => {
-              e.dataTransfer.setData(
-                "application/json",
-                JSON.stringify({ taskId: task.id, status: task.status }),
-              );
-              e.dataTransfer.effectAllowed = "move";
-            }
-          : undefined
-      }
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform) }}
+      {...attributes}
+      {...listeners}
       className={`block border rounded-sm px-3 py-2 hover:border-border-strong ${
         orphaned
           ? "border-danger/50 bg-danger/5"
