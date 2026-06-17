@@ -15,6 +15,7 @@ import { issueToken, revokeToken } from "@/claude/mcp-auth";
 import {
   abortMerge,
   commitMerge,
+  diffNamesAgainstBase,
   ensurePr,
   getPrState,
   hasRemote,
@@ -41,6 +42,25 @@ import {
 } from "./context";
 
 export { appendAiComment };
+
+// Hard-publish-error brake. A publish error that isn't a merge conflict (e.g.
+// `gh pr create` failing, push/auth/network) used to release the claim and
+// rethrow — leaving the task in PUBLISHING. Because claim() picks the oldest
+// PUBLISHING row first, that task gets re-claimed and fails again every tick,
+// head-of-line-blocking every other publishing task indefinitely (one empty
+// branch stalled the whole queue). Count failures via tagged comments; after
+// MAX, park the task in human review so the queue drains.
+const PUBLISH_FAILURE_PREFIX = "publish attempt failed";
+const MAX_PUBLISH_FAILURES = 3;
+
+function countPublishFailures(taskId: string): number {
+  return db
+    .select()
+    .from(comments)
+    .where(eq(comments.task_id, taskId))
+    .all()
+    .filter((c) => c.text.startsWith(PUBLISH_FAILURE_PREFIX)).length;
+}
 
 function getMaxAiDeclineCycles(): number {
   const row = db
@@ -170,6 +190,30 @@ export async function runPublishing(workerId: string): Promise<string | null> {
     }
     return task.id;
   } catch (err) {
+    // Hard publish error (not a merge conflict — those are handled inline with
+    // their own brake). Count it; after MAX consecutive failures park the task
+    // in human review so it stops head-of-line-blocking the publishing queue.
+    const message = (err as Error).message;
+    appendAiComment(task.id, `${PUBLISH_FAILURE_PREFIX}: ${message}`);
+    if (countPublishFailures(task.id) >= MAX_PUBLISH_FAILURES) {
+      appendAiComment(
+        task.id,
+        `publishing failed ${MAX_PUBLISH_FAILURES}× — parking for human review. Last error: ${message}`,
+        "NEEDS_REVIEW",
+      );
+      const moved = transitionStatus({
+        taskId: task.id,
+        from: "PUBLISHING",
+        to: "NEEDS_REVIEW",
+        pendingReviewKind: "deliverable",
+      });
+      if (moved) {
+        await applyTransitionSideEffects(task.id, "PUBLISHING", "NEEDS_REVIEW");
+        return task.id;
+      }
+    }
+    // Below the cap (or the transition was lost to a concurrent change):
+    // release and rethrow so the tick logs it and retries next cycle.
     releaseClaim(task.id, workerId);
     throw err;
   }
@@ -222,6 +266,35 @@ async function publishRepo(
       }
       return;
     }
+  }
+
+  // Empty-branch guard: if the worktree has no commits/diff against the base,
+  // there is nothing to publish — `gh pr create` would fail forever with "No
+  // commits between <base> and <branch>" and (being the oldest PUBLISHING row)
+  // re-loop every tick, starving the queue. Route to human review instead. The
+  // upstream cause is an IMPLEMENTING stage that produced no commits.
+  const changed = await diffNamesAgainstBase(
+    task.worktree_path,
+    project.default_branch,
+  );
+  if (changed.length === 0) {
+    appendAiComment(
+      task.id,
+      `empty branch \`${task.branch}\` — implementation produced no commits, nothing to publish. Re-run IMPLEMENTING or cancel.`,
+      "NEEDS_REVIEW",
+    );
+    const moved = transitionStatus({
+      taskId: task.id,
+      from: "PUBLISHING",
+      to: "NEEDS_REVIEW",
+      pendingReviewKind: "deliverable",
+    });
+    if (moved) {
+      await applyTransitionSideEffects(task.id, "PUBLISHING", "NEEDS_REVIEW");
+    } else {
+      releaseClaim(taskId, workerId);
+    }
+    return;
   }
 
   // PR-first per OVERVIEW.md: open the PR before any merge attempt so the
