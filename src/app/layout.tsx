@@ -6,7 +6,6 @@ import { Footer } from "@/components/app/footer";
 import { ToastProvider } from "@/components/ui/toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { getLanUrls } from "@/lib/lan";
-import { ServiceWorker } from "@/components/app/service-worker";
 
 const ubuntu = Ubuntu({
   subsets: ["latin"],
@@ -53,7 +52,6 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: SET_THEME_SCRIPT }} />
       </head>
       <body className="font-sans bg-bg text-text antialiased h-screen flex flex-col overflow-hidden">
-        <ServiceWorker />
         <ToastProvider>
           <TooltipProvider>
             <Nav />
