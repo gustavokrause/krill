@@ -675,6 +675,38 @@ export function Board({
     [upsertTask],
   );
 
+  const handleDragTransition = useCallback(
+    async (taskId: string, from: TaskStatus, to: TaskStatus) => {
+      if (!DRAG_ALLOWED_TO[from].includes(to)) return;
+      try {
+        upsertTask(await api.transitionTask(taskId, { to }));
+        toast.push({ variant: "success", title: `Moved to ${to}` });
+      } catch (err) {
+        toast.push({
+          variant: "danger",
+          title: "Transition failed",
+          description: (err as Error).message,
+        });
+      }
+    },
+    [upsertTask, toast],
+  );
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent, to: TaskStatus) => {
+      e.preventDefault();
+      try {
+        const { taskId, status } = JSON.parse(
+          e.dataTransfer.getData("application/json"),
+        ) as { taskId: string; status: TaskStatus };
+        void handleDragTransition(taskId, status, to);
+      } catch {
+        // ignore invalid drag data
+      }
+    },
+    [handleDragTransition],
+  );
+
   // SSE has no replay: a task pushed from whale (or any external create) while
   // this tab is backgrounded/disconnected emits a task.updated we never see, so
   // the board looks stale until a manual reload. Resync the authoritative list
@@ -896,6 +928,7 @@ export function Board({
                 stuck={stuckMap.get(t.id)}
                 bootId={health?.boot_id ?? null}
                 onRecover={recover}
+                isDraggable={DRAG_ALLOWED_TO[t.status].length > 0}
               />
             ))
           )}
@@ -934,6 +967,13 @@ export function Board({
               const span = expanded ? SPAN_BY_COUNT[col.statuses.length] : "";
               const dim = COLUMN_DIM[col.title] ?? "";
               const titleColor = COLUMN_TITLE_COLOR[col.title] ?? "";
+              const droppableInCol = col.statuses.filter((s) =>
+                DROPPABLE_STATUSES.has(s),
+              );
+              const collapsedDropTarget =
+                !expanded && droppableInCol.length === 1
+                  ? droppableInCol[0]
+                  : null;
               return (
                 <section
                   key={col.title}
@@ -1012,7 +1052,19 @@ export function Board({
                             </span>
                           </div>
                         </header>
-                        <div className="p-2 space-y-2 flex-1 min-h-0 overflow-y-auto">
+                        <div
+                          className="p-2 space-y-2 flex-1 min-h-0 overflow-y-auto"
+                          onDragOver={
+                            DROPPABLE_STATUSES.has(status)
+                              ? (e) => e.preventDefault()
+                              : undefined
+                          }
+                          onDrop={
+                            DROPPABLE_STATUSES.has(status)
+                              ? (e) => handleDrop(e, status)
+                              : undefined
+                          }
+                        >
                           {subList.length === 0 && status !== "BACKLOG" ? (
                             <div className="border border-dashed border-border rounded-sm h-10" />
                           ) : (
@@ -1024,6 +1076,7 @@ export function Board({
                                 stuck={stuckMap.get(t.id)}
                                 bootId={health?.boot_id ?? null}
                                 onRecover={recover}
+                                isDraggable={DRAG_ALLOWED_TO[t.status].length > 0}
                               />
                             ))
                           )}
@@ -1042,7 +1095,17 @@ export function Board({
                   })}
                 </div>
               ) : (
-                <div className="p-2 space-y-2 flex-1 min-h-0 overflow-y-auto">
+                <div
+                  className="p-2 space-y-2 flex-1 min-h-0 overflow-y-auto"
+                  onDragOver={
+                    collapsedDropTarget ? (e) => e.preventDefault() : undefined
+                  }
+                  onDrop={
+                    collapsedDropTarget
+                      ? (e) => handleDrop(e, collapsedDropTarget)
+                      : undefined
+                  }
+                >
                   {list.length === 0 ? (
                     <p className="text-xs text-text-3 px-2 py-1">No tasks.</p>
                   ) : (
@@ -1054,6 +1117,7 @@ export function Board({
                         stuck={stuckMap.get(t.id)}
                         bootId={health?.boot_id ?? null}
                         onRecover={recover}
+                        isDraggable={DRAG_ALLOWED_TO[t.status].length > 0}
                       />
                     ))
                   )}
