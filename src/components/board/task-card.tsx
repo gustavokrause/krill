@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useDraggable } from "@dnd-kit/core";
-import { CSS } from "@dnd-kit/utilities";
 import {
   AlertTriangle,
   Bot,
@@ -111,7 +110,7 @@ export function TaskCard({
   onRecover?: (id: string) => void;
   isDraggable?: boolean;
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
     data: { status: task.status },
     disabled: !isDraggable,
@@ -121,7 +120,7 @@ export function TaskCard({
 
   function handlePointerDown(e: React.PointerEvent<HTMLAnchorElement>) {
     pointerDownRef.current = { x: e.clientX, y: e.clientY };
-    listeners?.onPointerDown?.(e.nativeEvent);
+    listeners?.onPointerDown?.(e);
   }
 
   function handleClick(e: React.MouseEvent<HTMLAnchorElement>) {
@@ -179,10 +178,7 @@ export function TaskCard({
     <Link
       href={`/tasks/${task.id}`}
       ref={setNodeRef}
-      style={{
-        transform: CSS.Transform.toString(transform),
-        ...(isDragging ? { visibility: "hidden" as const } : {}),
-      }}
+      style={isDragging ? { visibility: "hidden" as const } : undefined}
       {...attributes}
       {...listeners}
       onPointerDown={handlePointerDown}

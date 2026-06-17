@@ -974,6 +974,7 @@ export function Board({
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
             onDragCancel={onDragCancel}
+            autoScroll={{ threshold: { x: 0, y: 0.2 } }}
           >
           <div className="hidden lg:flex flex-col flex-1 min-h-0 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
             <div
@@ -1159,14 +1160,15 @@ function DroppableSubColumn({
     id: status,
     disabled: !DROPPABLE_STATUSES.has(status),
   });
-  const dim =
-    activeStatus != null && !DRAG_ALLOWED_TO[activeStatus].includes(status);
+  const canDrop =
+    activeStatus != null && DRAG_ALLOWED_TO[activeStatus].includes(status);
+  const dim = activeStatus != null && !canDrop;
   return (
     <div
       ref={setNodeRef}
       className={cn(
         "border border-border dark:border-border-strong rounded-sm bg-surface flex flex-col min-h-0",
-        isOver && "ring-1 ring-primary border-primary",
+        isOver && canDrop && "ring-1 ring-primary border-primary",
         dim && "opacity-40 pointer-events-none",
       )}
     >
@@ -1190,15 +1192,17 @@ function CollapsedDropBody({
     id: droppableId,
     disabled: !enabled,
   });
-  const dim =
+  const canDrop =
+    enabled &&
     activeStatus != null &&
-    (!enabled || !DRAG_ALLOWED_TO[activeStatus].includes(droppableId));
+    DRAG_ALLOWED_TO[activeStatus].includes(droppableId);
+  const dim = activeStatus != null && !canDrop;
   return (
     <div
       ref={setNodeRef}
       className={cn(
         "p-2 space-y-2 flex-1 min-h-0 overflow-y-auto",
-        isOver && "ring-1 ring-primary border-primary",
+        isOver && canDrop && "ring-1 ring-primary border-primary",
         dim && "opacity-40 pointer-events-none",
       )}
     >
