@@ -1,7 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import {
+  DndContext,
+  PointerSensor,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -531,6 +540,10 @@ export function Board({
 }) {
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [config, setConfig] = useState<GlobalConfig>(initialConfig);
+  const [activeStatus, setActiveStatus] = useState<TaskStatus | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+  );
   const [health, setHealth] = useState<HealthSnapshot | null>(null);
   const [stuckMap, setStuckMap] = useState<Map<string, StuckEntry>>(
     () => new Map(),
@@ -675,37 +688,40 @@ export function Board({
     [upsertTask],
   );
 
-  const handleDragTransition = useCallback(
-    async (taskId: string, from: TaskStatus, to: TaskStatus) => {
+  const onDragStart = useCallback(({ active }: DragStartEvent) => {
+    setActiveStatus((active.data.current?.status as TaskStatus) ?? null);
+  }, []);
+
+  const onDragEnd = useCallback(
+    ({ active, over }: DragEndEvent) => {
+      setActiveStatus(null);
+      if (!over) return;
+      const task = tasks.find((t) => t.id === active.id);
+      if (!task) return;
+      const from = task.status;
+      const to = over.id as TaskStatus;
       if (!DRAG_ALLOWED_TO[from].includes(to)) return;
-      try {
-        upsertTask(await api.transitionTask(taskId, { to }));
-        toast.push({ variant: "success", title: `Moved to ${to}` });
-      } catch (err) {
-        toast.push({
-          variant: "danger",
-          title: "Transition failed",
-          description: (err as Error).message,
-        });
-      }
+      const snapshot = task;
+      upsertTask({ ...task, status: to });
+      void api.transitionTask(task.id, { to }).then(
+        (updated) => {
+          upsertTask(updated);
+          toast.push({ variant: "success", title: `Moved to ${to}` });
+        },
+        (err) => {
+          upsertTask(snapshot);
+          toast.push({
+            variant: "danger",
+            title: "Transition failed",
+            description: (err as Error).message,
+          });
+        },
+      );
     },
-    [upsertTask, toast],
+    [tasks, upsertTask, toast],
   );
 
-  const handleDrop = useCallback(
-    (e: React.DragEvent, to: TaskStatus) => {
-      e.preventDefault();
-      try {
-        const { taskId, status } = JSON.parse(
-          e.dataTransfer.getData("application/json"),
-        ) as { taskId: string; status: TaskStatus };
-        void handleDragTransition(taskId, status, to);
-      } catch {
-        // ignore invalid drag data
-      }
-    },
-    [handleDragTransition],
-  );
+  const onDragCancel = useCallback(() => setActiveStatus(null), []);
 
   // SSE has no replay: a task pushed from whale (or any external create) while
   // this tab is backgrounded/disconnected emits a task.updated we never see, so
@@ -950,6 +966,12 @@ export function Board({
           ? `repeat(${nonCanceledCols}, minmax(${COLUMN_MIN_WIDTH_PX}px, 1fr)) minmax(${CANCELED_MIN_WIDTH_PX}px, 0.55fr)`
           : `repeat(${nonCanceledCols}, minmax(${COLUMN_MIN_WIDTH_PX}px, 1fr))`;
         return (
+          <DndContext
+            sensors={sensors}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+            onDragCancel={onDragCancel}
+          >
           <div className="hidden lg:flex flex-col flex-1 min-h-0 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
             <div
               className="grid gap-4 flex-1 min-h-0"
@@ -1025,9 +1047,10 @@ export function Board({
                   {col.statuses.map((status) => {
                     const subList = visible.filter((t) => t.status === status);
                     return (
-                      <div
+                      <DroppableSubColumn
                         key={status}
-                        className="border border-border dark:border-border-strong rounded-sm bg-surface flex flex-col min-h-0"
+                        status={status}
+                        activeStatus={activeStatus}
                       >
                         <header className="flex items-center justify-between px-2 py-1 border-b border-border">
                           <div className="flex items-center gap-1.5 min-w-0">
@@ -1052,19 +1075,7 @@ export function Board({
                             </span>
                           </div>
                         </header>
-                        <div
-                          className="p-2 space-y-2 flex-1 min-h-0 overflow-y-auto"
-                          onDragOver={
-                            DROPPABLE_STATUSES.has(status)
-                              ? (e) => e.preventDefault()
-                              : undefined
-                          }
-                          onDrop={
-                            DROPPABLE_STATUSES.has(status)
-                              ? (e) => handleDrop(e, status)
-                              : undefined
-                          }
-                        >
+                        <div className="p-2 space-y-2 flex-1 min-h-0 overflow-y-auto">
                           {subList.length === 0 && status !== "BACKLOG" ? (
                             <div className="border border-dashed border-border rounded-sm h-10" />
                           ) : (
@@ -1090,21 +1101,15 @@ export function Board({
                             </Link>
                           ) : null}
                         </div>
-                      </div>
+                      </DroppableSubColumn>
                     );
                   })}
                 </div>
               ) : (
-                <div
-                  className="p-2 space-y-2 flex-1 min-h-0 overflow-y-auto"
-                  onDragOver={
-                    collapsedDropTarget ? (e) => e.preventDefault() : undefined
-                  }
-                  onDrop={
-                    collapsedDropTarget
-                      ? (e) => handleDrop(e, collapsedDropTarget)
-                      : undefined
-                  }
+                <CollapsedDropBody
+                  droppableId={collapsedDropTarget ?? col.statuses[0]}
+                  enabled={!!collapsedDropTarget}
+                  activeStatus={activeStatus}
                 >
                   {list.length === 0 ? (
                     <p className="text-xs text-text-3 px-2 py-1">No tasks.</p>
@@ -1121,16 +1126,78 @@ export function Board({
                       />
                     ))
                   )}
-                </div>
+                </CollapsedDropBody>
               )}
             </section>
           );
         })}
             </div>
           </div>
+          </DndContext>
         );
       })()}
     </main>
+  );
+}
+
+function DroppableSubColumn({
+  status,
+  activeStatus,
+  children,
+}: {
+  status: TaskStatus;
+  activeStatus: TaskStatus | null;
+  children: ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: status,
+    disabled: !DROPPABLE_STATUSES.has(status),
+  });
+  const dim =
+    activeStatus != null && !DRAG_ALLOWED_TO[activeStatus].includes(status);
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "border border-border dark:border-border-strong rounded-sm bg-surface flex flex-col min-h-0",
+        isOver && "ring-1 ring-primary border-primary",
+        dim && "opacity-40 pointer-events-none",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+function CollapsedDropBody({
+  droppableId,
+  enabled,
+  activeStatus,
+  children,
+}: {
+  droppableId: TaskStatus;
+  enabled: boolean;
+  activeStatus: TaskStatus | null;
+  children: ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: droppableId,
+    disabled: !enabled,
+  });
+  const dim =
+    activeStatus != null &&
+    (!enabled || !DRAG_ALLOWED_TO[activeStatus].includes(droppableId));
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "p-2 space-y-2 flex-1 min-h-0 overflow-y-auto",
+        isOver && "ring-1 ring-primary border-primary",
+        dim && "opacity-40 pointer-events-none",
+      )}
+    >
+      {children}
+    </div>
   );
 }
 
