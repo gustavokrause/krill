@@ -99,12 +99,14 @@ export function TaskCard({
   stuck,
   bootId,
   onRecover,
+  isDraggable,
 }: {
   task: Task;
   project?: Project;
   stuck?: StuckEntry;
   bootId?: string | null;
   onRecover?: (id: string) => void;
+  isDraggable?: boolean;
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -148,6 +150,18 @@ export function TaskCard({
   return (
     <Link
       href={`/tasks/${task.id}`}
+      draggable={isDraggable}
+      onDragStart={
+        isDraggable
+          ? (e) => {
+              e.dataTransfer.setData(
+                "application/json",
+                JSON.stringify({ taskId: task.id, status: task.status }),
+              );
+              e.dataTransfer.effectAllowed = "move";
+            }
+          : undefined
+      }
       className={`block border rounded-sm px-3 py-2 hover:border-border-strong ${
         orphaned
           ? "border-danger/50 bg-danger/5"
