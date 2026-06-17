@@ -53,10 +53,10 @@ function intentFor(
     if (to === "IMPLEMENTING") return "approve";
     if (to === "PLANNING") return "back";
   }
-  // NEEDS_REVIEW(deliverable | conflict) → IMPLEMENTING is decline/redo.
+  // NEEDS_REVIEW(deliverable | conflict | empty) → IMPLEMENTING is decline/redo.
   if (
     from === "NEEDS_REVIEW" &&
-    (kind === "deliverable" || kind === "conflict") &&
+    (kind === "deliverable" || kind === "conflict" || kind === "empty") &&
     to === "IMPLEMENTING"
   ) {
     return "back";
@@ -136,6 +136,9 @@ function nextStatusesFor(task: Task): TaskStatus[] {
           return ["DONE", "IMPLEMENTING", "BACKLOG", "CANCELED"];
         case "conflict":
           return ["PUBLISHING", "IMPLEMENTING", "BACKLOG", "CANCELED"];
+        case "empty":
+          // No artifact to approve — re-run implementation or shelve/cancel.
+          return ["IMPLEMENTING", "BACKLOG", "CANCELED"];
         default:
           return ["BACKLOG", "CANCELED"];
       }
@@ -303,6 +306,15 @@ export function TaskDetail({
                 : draftPr
                   ? "Draft PR — not auto-merged. Approve to mark it ready and squash-merge, or send back to IMPLEMENTING for a redo."
                   : "Review the PR. Approve to squash-merge to main, or send back to IMPLEMENTING for a redo.",
+        showSolveWithSonnet: false,
+      };
+    }
+    if (kind === "empty") {
+      return {
+        kind,
+        title: "Empty result",
+        message:
+          "Implementation produced no commits — nothing to ship. Re-run IMPLEMENTING, or cancel the task.",
         showSolveWithSonnet: false,
       };
     }

@@ -287,7 +287,7 @@ async function publishRepo(
       taskId: task.id,
       from: "PUBLISHING",
       to: "NEEDS_REVIEW",
-      pendingReviewKind: "deliverable",
+      pendingReviewKind: "empty",
     });
     if (moved) {
       await applyTransitionSideEffects(task.id, "PUBLISHING", "NEEDS_REVIEW");

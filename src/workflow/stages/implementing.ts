@@ -103,7 +103,7 @@ export async function runImplementing(
           taskId: task.id,
           from: "IMPLEMENTING",
           to: "NEEDS_REVIEW",
-          pendingReviewKind: "deliverable",
+          pendingReviewKind: "empty",
         });
         if (parked) {
           await applyTransitionSideEffects(task.id, "IMPLEMENTING", "NEEDS_REVIEW");

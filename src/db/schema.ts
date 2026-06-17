@@ -23,7 +23,10 @@ export const TASK_STATUSES = [
 ] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
-export const REVIEW_KINDS = ["plan", "deliverable", "conflict"] as const;
+// "empty" — implementation produced no commits / nothing to ship. Unlike
+// "deliverable" there is no artifact to approve-and-merge; the human re-runs
+// IMPLEMENTING or cancels. Keeps a no-op task from masquerading as a deliverable.
+export const REVIEW_KINDS = ["plan", "deliverable", "conflict", "empty"] as const;
 export type ReviewKind = (typeof REVIEW_KINDS)[number];
 
 // Statuses where the worktree is preserved (cleanup gate must skip these).
@@ -256,7 +259,7 @@ export const tasks = sqliteTable(
     check("tasks_mode_enum", sql`${t.mode} IN ('dev','non-dev')`),
     check(
       "tasks_pending_review_kind_enum",
-      sql`${t.pending_review_kind} IS NULL OR ${t.pending_review_kind} IN ('plan','deliverable','conflict')`,
+      sql`${t.pending_review_kind} IS NULL OR ${t.pending_review_kind} IN ('plan','deliverable','conflict','empty')`,
     ),
     check(
       "tasks_pending_review_kind_requires_status",
