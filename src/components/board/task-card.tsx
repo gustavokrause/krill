@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import type { Project, Task, TaskStatus } from "@/db/schema";
 import type { StuckEntry } from "@/lib/client/api";
+import { DRAG_ACTIVATION_PX } from "./drag-constants";
 import { PriorityBadge } from "@/components/ui/badge";
 import { Tooltip } from "@/components/ui/tooltip";
 
@@ -110,11 +111,30 @@ export function TaskCard({
   onRecover?: (id: string) => void;
   isDraggable?: boolean;
 }) {
-  const { attributes, listeners, setNodeRef, transform } = useDraggable({
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: task.id,
     data: { status: task.status },
     disabled: !isDraggable,
   });
+
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
+
+  function handlePointerDown(e: React.PointerEvent<HTMLAnchorElement>) {
+    pointerDownRef.current = { x: e.clientX, y: e.clientY };
+    listeners?.onPointerDown?.(e.nativeEvent);
+  }
+
+  function handleClick(e: React.MouseEvent<HTMLAnchorElement>) {
+    const pd = pointerDownRef.current;
+    pointerDownRef.current = null;
+    if (pd) {
+      const dx = e.clientX - pd.x;
+      const dy = e.clientY - pd.y;
+      if (Math.sqrt(dx * dx + dy * dy) > DRAG_ACTIVATION_PX) {
+        e.preventDefault();
+      }
+    }
+  }
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -159,9 +179,14 @@ export function TaskCard({
     <Link
       href={`/tasks/${task.id}`}
       ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform) }}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        ...(isDragging ? { visibility: "hidden" as const } : {}),
+      }}
       {...attributes}
       {...listeners}
+      onPointerDown={handlePointerDown}
+      onClick={handleClick}
       className={`block border rounded-sm px-3 py-2 hover:border-border-strong ${
         orphaned
           ? "border-danger/50 bg-danger/5"
@@ -314,5 +339,23 @@ export function TaskCard({
         </p>
       ) : null}
     </Link>
+  );
+}
+
+export function TaskCardPreview({ task }: { task: Task }) {
+  const Icon = STATUS_ICON[task.status];
+  const iconColor = STATUS_COLOR[task.status];
+  return (
+    <div className="block border border-border bg-surface-2 rounded-sm px-3 py-2 shadow-lg">
+      <div className="flex items-start gap-2">
+        <Icon
+          className={`h-4 w-4 mt-0.5 shrink-0 ${iconColor}`}
+          aria-label={task.status}
+        />
+        <p className="text-sm text-text leading-snug font-medium line-clamp-2">
+          {task.name}
+        </p>
+      </div>
+    </div>
   );
 }
