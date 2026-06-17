@@ -1,8 +1,28 @@
 import { randomUUID } from "node:crypto";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { blockers, tasks, type Blocker } from "@/db/schema";
+import { blockers, globalConfig, tasks, type Blocker, type StageEnabled } from "@/db/schema";
+import { broadcast } from "@/lib/sse";
 import { now } from "./types";
+
+/**
+ * Flip the global todo-picker on/off and broadcast config.changed. Idempotent.
+ * Auto-pauses auto-picking when a task surfaces a follow-up (so a human reviews
+ * it first); re-enabled when the follow-up blocker is resolved.
+ */
+export function setTodoPickerEnabled(enabled: boolean): void {
+  const cur = db.select().from(globalConfig).where(eq(globalConfig.id, 1)).get();
+  if (!cur) return;
+  const se = cur.stage_enabled as StageEnabled;
+  if (se.todo_picker === enabled) return;
+  const updated = db
+    .update(globalConfig)
+    .set({ stage_enabled: { ...se, todo_picker: enabled } })
+    .where(eq(globalConfig.id, 1))
+    .returning()
+    .all();
+  if (updated[0]) broadcast({ type: "config.changed", config: updated[0] });
+}
 
 export function listBlockers(status?: string): Blocker[] {
   const rows = db.select().from(blockers).orderBy(desc(blockers.created_at)).all();
@@ -29,8 +49,11 @@ export function addBlocker(b: {
   summary: string;
   detail?: string;
   action_url?: string | null;
+  /** Refresh an existing open row on (kind, task_id, stage). Off → always a new
+   *  row (e.g. follow-ups: each surfaces distinct content worth keeping). */
+  dedupe?: boolean;
 }): Blocker {
-  const open = listBlockers("open").find(
+  const open = b.dedupe === false ? undefined : listBlockers("open").find(
     (x) => x.kind === b.kind && x.task_id === (b.task_id ?? null) && x.stage === (b.stage ?? null),
   );
   if (open) {
@@ -58,13 +81,18 @@ export function addBlocker(b: {
 }
 
 /**
- * Resolve a blocker. On "resolved", unblock its task so the next tick re-runs
- * the paused stage. "dismissed" clears the blocker but leaves the task blocked.
+ * Resolve a blocker. On "resolved": a `followup` blocker re-enables the
+ * todo-picker it paused; any other kind unblocks its task so the next tick
+ * re-runs the paused stage. "dismissed" clears the blocker without either
+ * (a follow-up dismiss leaves the picker paused).
  */
 export function resolveBlocker(id: string, status: "resolved" | "dismissed" = "resolved"): Blocker | undefined {
   const b = getBlocker(id);
   if (!b) return undefined;
   db.update(blockers).set({ status, resolved_at: now() }).where(eq(blockers.id, id)).run();
-  if (status === "resolved" && b.task_id) setTaskBlocked(b.task_id, false);
+  if (status === "resolved") {
+    if (b.kind === "followup") setTodoPickerEnabled(true);
+    else if (b.task_id) setTaskBlocked(b.task_id, false);
+  }
   return getBlocker(id);
 }

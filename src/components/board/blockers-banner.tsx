@@ -14,6 +14,8 @@ function remedy(kind: string): string {
       return "krill's headless runner can't do a browser sign-in, and the captured auth link is single-use — it dies with the worker, so there's nothing to click here. Authenticate the MCP once in an interactive session on this machine (run `claude`, then `/mcp` → authorize the server, e.g. Supabase). The token caches, so krill reuses it — then Resume to re-run the stage.";
     case "cli_login":
       return "Run `claude` in a terminal on this machine and complete `/login`. Then Resume to re-run the stage.";
+    case "followup":
+      return "Auto-picking is paused — a task surfaced out-of-scope work. Review the content below and act on it (e.g. open a task), then Resume to re-enable the TODO picker. Dismiss clears this but keeps picking paused.";
     default:
       return "Clear the issue in an interactive session, then Resume.";
   }
@@ -67,9 +69,18 @@ export function BlockersBanner() {
                   {b.task_id ? ` · ${b.stage}:${b.task_id}` : ""}
                 </div>
                 {b.detail ? (
-                  <div className="text-text-2 mt-1 font-mono whitespace-pre-wrap break-all line-clamp-3">
-                    {b.detail}
-                  </div>
+                  b.kind === "followup" ? (
+                    <textarea
+                      readOnly
+                      value={b.detail}
+                      onClick={(e) => e.currentTarget.select()}
+                      className="mt-1 w-full h-24 resize-y rounded border border-border bg-surface-2 p-1.5 text-[11px] font-mono text-text-2"
+                    />
+                  ) : (
+                    <div className="text-text-2 mt-1 font-mono whitespace-pre-wrap break-all line-clamp-3">
+                      {b.detail}
+                    </div>
+                  )
                 ) : null}
                 <div className="text-text-2 mt-1.5 leading-relaxed">{remedy(b.kind)}</div>
               </div>
@@ -80,7 +91,7 @@ export function BlockersBanner() {
                   onClick={() => act(b.id, "resolve")}
                   className="px-2.5 py-1 rounded-sm bg-primary text-white disabled:opacity-50"
                 >
-                  {busy === b.id ? "…" : "Done — resume"}
+                  {busy === b.id ? "…" : b.kind === "followup" ? "Resume" : "Done — resume"}
                 </button>
                 <button
                   type="button"
