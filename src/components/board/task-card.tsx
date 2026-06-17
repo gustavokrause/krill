@@ -23,6 +23,7 @@ import type { Project, Task, TaskStatus } from "@/db/schema";
 import type { StuckEntry } from "@/lib/client/api";
 import { PriorityBadge } from "@/components/ui/badge";
 import { Tooltip } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 const STATUS_ICON: Record<TaskStatus, LucideIcon> = {
   BACKLOG: CircleDashed,
@@ -99,12 +100,20 @@ export function TaskCard({
   stuck,
   bootId,
   onRecover,
+  isDraggable,
+  activeTaskId,
+  onDragStart,
+  onDragEnd,
 }: {
   task: Task;
   project?: Project;
   stuck?: StuckEntry;
   bootId?: string | null;
   onRecover?: (id: string) => void;
+  isDraggable?: boolean;
+  activeTaskId?: string | null;
+  onDragStart?: (taskId: string) => void;
+  onDragEnd?: () => void;
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -148,13 +157,31 @@ export function TaskCard({
   return (
     <Link
       href={`/tasks/${task.id}`}
-      className={`block border rounded-sm px-3 py-2 hover:border-border-strong ${
+      draggable={isDraggable}
+      onDragStart={
+        isDraggable
+          ? (e) => {
+              e.dataTransfer.setData(
+                "application/json",
+                JSON.stringify({ taskId: task.id, status: task.status }),
+              );
+              e.dataTransfer.effectAllowed = "move";
+              // defer opacity change so drag ghost captures undimmed card
+              requestAnimationFrame(() => onDragStart?.(task.id));
+            }
+          : undefined
+      }
+      onDragEnd={isDraggable ? () => onDragEnd?.() : undefined}
+      className={cn(
+        "block border rounded-sm px-3 py-2 hover:border-border-strong",
+        isDraggable && "cursor-grab",
+        activeTaskId === task.id && "opacity-50",
         orphaned
           ? "border-danger/50 bg-danger/5"
           : armed
             ? "border-warning/50 bg-warning/5"
-            : "border-border bg-surface-2"
-      }`}
+            : "border-border bg-surface-2",
+      )}
     >
       <div className="flex items-start gap-2">
         <Icon

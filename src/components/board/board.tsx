@@ -109,6 +109,25 @@ const COLUMN_DIM: Record<string, string> = {
   Canceled: "opacity-75",
 };
 
+// Drag-and-drop transition matrix. Humans can drag from `source` to any status
+// in DRAG_ALLOWED_TO[source]. AI-owned columns and terminals are not drag sources
+// — automation or workflow rules own those transitions.
+const DRAG_ALLOWED_TO: Record<TaskStatus, TaskStatus[]> = {
+  BACKLOG: ["TODO", "CANCELED"],
+  TODO: ["BACKLOG", "CANCELED"],
+  NEEDS_REVIEW: ["DONE", "IMPLEMENTING", "CANCELED"],
+  PLANNING: [],
+  IMPLEMENTING: [],
+  "AI-REVIEW": [],
+  PUBLISHING: [],
+  DONE: [],
+  CANCELED: [],
+};
+
+const DROPPABLE_STATUSES: Set<TaskStatus> = new Set(
+  Object.values(DRAG_ALLOWED_TO).flat(),
+);
+
 const SUB_GRID_BY_COUNT: Record<number, string> = {
   2: "p-2 grid grid-cols-2 gap-2 flex-1 min-h-0 bg-neutral-100 dark:bg-neutral-950",
   3: "p-2 grid grid-cols-3 gap-2 flex-1 min-h-0 bg-neutral-100 dark:bg-neutral-950",
@@ -523,6 +542,8 @@ export function Board({
   const toast = useToast();
   const [pickerSaving, setPickerSaving] = useState(false);
   const [automationSaving, setAutomationSaving] = useState(false);
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [dragOverColTitle, setDragOverColTitle] = useState<string | null>(null);
 
   // useState seeds once on mount; re-sync when the server prop changes so
   // router.refresh() (fired after create/edit) surfaces new rows. Without
@@ -640,6 +661,47 @@ export function Board({
 
   const removeTask = useCallback((id: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const handleDragTransition = useCallback(
+    async (taskId: string, from: TaskStatus, to: TaskStatus) => {
+      if (!DRAG_ALLOWED_TO[from].includes(to)) return;
+      try {
+        upsertTask(await api.transitionTask(taskId, { to }));
+        toast.push({ variant: "success", title: `Moved to ${to}` });
+      } catch (err) {
+        toast.push({
+          variant: "danger",
+          title: "Transition failed",
+          description: (err as Error).message,
+        });
+      }
+    },
+    [upsertTask, toast],
+  );
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent, to: TaskStatus) => {
+      e.preventDefault();
+      try {
+        const { taskId, status } = JSON.parse(
+          e.dataTransfer.getData("application/json"),
+        ) as { taskId: string; status: TaskStatus };
+        void handleDragTransition(taskId, status, to);
+      } catch {
+        // ignore invalid drag data
+      }
+    },
+    [handleDragTransition],
+  );
+
+  const handleDragStart = useCallback((taskId: string) => {
+    setActiveTaskId(taskId);
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    setActiveTaskId(null);
+    setDragOverColTitle(null);
   }, []);
 
   // Recover an orphaned-claim task: force-release the dead worker's claim so the
@@ -914,10 +976,30 @@ export function Board({
               const span = expanded ? SPAN_BY_COUNT[col.statuses.length] : "";
               const dim = COLUMN_DIM[col.title] ?? "";
               const titleColor = COLUMN_TITLE_COLOR[col.title] ?? "";
+              const droppableInCol = col.statuses.filter((s) =>
+                DROPPABLE_STATUSES.has(s),
+              );
+              const isDropTarget = droppableInCol.length > 0;
+              const collapsedDropTarget =
+                !expanded && droppableInCol.length === 1
+                  ? droppableInCol[0]
+                  : null;
+              const isHighlighted =
+                activeTaskId !== null &&
+                dragOverColTitle === col.title &&
+                isDropTarget;
               return (
                 <section
                   key={col.title}
-                  className={`${span} ${dim} border border-border dark:border-border-strong rounded-sm bg-surface flex flex-col min-h-0 h-full`}
+                  onDragEnter={
+                    isDropTarget
+                      ? () => setDragOverColTitle(col.title)
+                      : undefined
+                  }
+                  className={cn(
+                    `${span} ${dim} border border-border dark:border-border-strong rounded-sm bg-surface flex flex-col min-h-0 h-full`,
+                    isHighlighted && "ring-2 ring-primary/60 bg-primary/5",
+                  )}
                 >
               <header className="flex items-center justify-between px-3 py-2 border-b border-border">
                 <div className="flex items-center gap-2 min-w-0">
@@ -992,7 +1074,19 @@ export function Board({
                             </span>
                           </div>
                         </header>
-                        <div className="p-2 space-y-2 flex-1 min-h-0 overflow-y-auto">
+                        <div
+                          className="p-2 space-y-2 flex-1 min-h-0 overflow-y-auto"
+                          onDragOver={
+                            DROPPABLE_STATUSES.has(status)
+                              ? (e) => e.preventDefault()
+                              : undefined
+                          }
+                          onDrop={
+                            DROPPABLE_STATUSES.has(status)
+                              ? (e) => handleDrop(e, status)
+                              : undefined
+                          }
+                        >
                           {subList.length === 0 && status !== "BACKLOG" ? (
                             <div className="border border-dashed border-border rounded-sm h-10" />
                           ) : (
@@ -1004,6 +1098,10 @@ export function Board({
                                 stuck={stuckMap.get(t.id)}
                                 bootId={health?.boot_id ?? null}
                                 onRecover={recover}
+                                isDraggable={DRAG_ALLOWED_TO[t.status].length > 0}
+                                activeTaskId={activeTaskId}
+                                onDragStart={handleDragStart}
+                                onDragEnd={handleDragEnd}
                               />
                             ))
                           )}
@@ -1022,7 +1120,17 @@ export function Board({
                   })}
                 </div>
               ) : (
-                <div className="p-2 space-y-2 flex-1 min-h-0 overflow-y-auto">
+                <div
+                  className="p-2 space-y-2 flex-1 min-h-0 overflow-y-auto"
+                  onDragOver={
+                    collapsedDropTarget ? (e) => e.preventDefault() : undefined
+                  }
+                  onDrop={
+                    collapsedDropTarget
+                      ? (e) => handleDrop(e, collapsedDropTarget)
+                      : undefined
+                  }
+                >
                   {list.length === 0 ? (
                     <p className="text-xs text-text-3 px-2 py-1">No tasks.</p>
                   ) : (
@@ -1034,6 +1142,10 @@ export function Board({
                         stuck={stuckMap.get(t.id)}
                         bootId={health?.boot_id ?? null}
                         onRecover={recover}
+                        isDraggable={DRAG_ALLOWED_TO[t.status].length > 0}
+                        activeTaskId={activeTaskId}
+                        onDragStart={handleDragStart}
+                        onDragEnd={handleDragEnd}
                       />
                     ))
                   )}
