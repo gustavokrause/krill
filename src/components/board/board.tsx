@@ -126,6 +126,26 @@ const AI_STATUSES = new Set<TaskStatus>([
   "AI-REVIEW",
 ]);
 
+// Drag-and-drop transition matrix. Humans can drag from `source` to any status
+// in `DRAG_ALLOWED_TO[source]`. AI-owned columns (PLANNING/IMPLEMENTING/
+// AI-REVIEW/PUBLISHING) and terminals (DONE/CANCELED) are not drag sources —
+// automation or workflow rules own those transitions.
+const DRAG_ALLOWED_TO: Record<TaskStatus, TaskStatus[]> = {
+  BACKLOG: ["TODO", "CANCELED"],
+  TODO: ["BACKLOG", "CANCELED"],
+  NEEDS_REVIEW: ["DONE", "IMPLEMENTING", "CANCELED"],
+  PLANNING: [],
+  IMPLEMENTING: [],
+  "AI-REVIEW": [],
+  PUBLISHING: [],
+  DONE: [],
+  CANCELED: [],
+};
+
+const DROPPABLE_STATUSES: Set<TaskStatus> = new Set(
+  Object.values(DRAG_ALLOWED_TO).flat(),
+);
+
 function ownerOf(status: TaskStatus): Owner | null {
   if (HUMAN_STATUSES.has(status)) return "human";
   if (AI_STATUSES.has(status)) return "ai";
