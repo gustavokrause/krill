@@ -21,7 +21,7 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
-import type { Project, Task, TaskStatus } from "@/db/schema";
+import type { Project, ReviewKind, Task, TaskStatus } from "@/db/schema";
 import type { StuckEntry } from "@/lib/client/api";
 import { DRAG_ACTIVATION_PX } from "./drag-constants";
 import { PriorityBadge } from "@/components/ui/badge";
@@ -51,16 +51,18 @@ const STATUS_COLOR: Record<TaskStatus, string> = {
   CANCELED: "text-muted",
 };
 
-const KIND_LABEL: Record<"plan" | "deliverable" | "conflict", string> = {
+const KIND_LABEL: Record<ReviewKind, string> = {
   plan: "plan",
   deliverable: "deliverable",
   conflict: "conflict",
+  empty: "empty",
 };
 
-const KIND_COLOR: Record<"plan" | "deliverable" | "conflict", string> = {
+const KIND_COLOR: Record<ReviewKind, string> = {
   plan: "bg-info/10 text-info border-info/40",
   deliverable: "bg-success/10 text-success border-success/40",
   conflict: "bg-danger/10 text-danger border-danger/40",
+  empty: "bg-warning/10 text-warning border-warning/40",
 };
 
 const TERMINAL = new Set<TaskStatus>(["DONE", "CANCELED"]);
