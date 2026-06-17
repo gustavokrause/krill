@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -88,6 +88,7 @@ function termRange(w: TermWindow): { start: number; end: number } {
 }
 
 const EXPANDED_STORAGE_KEY = "board.expandedColumns";
+const PROJECT_FILTER_KEY = "board.projectFilter";
 
 const COLUMN_MIN_WIDTH_PX = 220;
 const CANCELED_MIN_WIDTH_PX = 140;
@@ -732,6 +733,13 @@ export function Board({
 
   const setProjectFilter = useCallback(
     (v: string) => {
+      // Persist the choice so it sticks across reloads / nav back to a bare `/`
+      // (the URL alone is lost the moment you leave the board and return).
+      try {
+        window.localStorage.setItem(PROJECT_FILTER_KEY, v);
+      } catch {
+        // ignore quota / disabled storage
+      }
       const next = new URLSearchParams(searchParams.toString());
       if (v === "all") next.delete("project");
       else next.set("project", v);
@@ -740,6 +748,25 @@ export function Board({
     },
     [pathname, router, searchParams],
   );
+
+  // Restore the last project filter on mount when the URL carries none. The URL
+  // wins if present (shareable/explicit); otherwise fall back to localStorage.
+  const restoredFilter = useRef(false);
+  useEffect(() => {
+    if (restoredFilter.current) return;
+    if (searchParams.get("project")) {
+      restoredFilter.current = true; // explicit URL filter — leave it
+      return;
+    }
+    if (bySlug.size === 0) return; // wait until projects are known
+    restoredFilter.current = true;
+    try {
+      const stored = window.localStorage.getItem(PROJECT_FILTER_KEY);
+      if (stored && stored !== "all" && bySlug.has(stored)) setProjectFilter(stored);
+    } catch {
+      // ignore
+    }
+  }, [bySlug, searchParams, setProjectFilter]);
 
   const byProject = useMemo(() => {
     const map = new Map<string, Project>();
