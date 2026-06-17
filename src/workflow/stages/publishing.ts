@@ -280,7 +280,7 @@ async function publishRepo(
   if (changed.length === 0) {
     appendAiComment(
       task.id,
-      `empty branch \`${task.branch}\` — implementation produced no commits, nothing to publish. Re-run IMPLEMENTING or cancel.`,
+      `no codebase changes — empty branch \`${task.branch}\` with no commits, nothing to publish. Safe to mark DONE, or cancel; re-run IMPLEMENTING to retry.`,
       "NEEDS_REVIEW",
     );
     const moved = transitionStatus({
