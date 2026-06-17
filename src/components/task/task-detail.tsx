@@ -811,11 +811,11 @@ function DeclineCycleRow({ current, max }: { current: number; max: number }) {
   return (
     <div
       className="flex items-baseline justify-between gap-3"
-      title="AI auto-actions since last human comment. At max, the brake forces NEEDS_REVIEW."
+      title={`AI auto-actions since your last comment: ${current}. The brake trips at ${max} (forces NEEDS_REVIEW). It can read higher than the threshold — later AI actions (e.g. conflict-resolve retries) keep counting until you comment, which resets it.`}
     >
-      <dt className="text-text-2 shrink-0">AI brake</dt>
+      <dt className="text-text-2 shrink-0">AI actions</dt>
       <dd className={cn("text-right font-mono", cls)}>
-        {current}/{max}
+        {current} <span className="text-text-3">· brake {max}</span>
       </dd>
     </div>
   );
