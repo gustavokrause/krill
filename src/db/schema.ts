@@ -231,6 +231,11 @@ export const tasks = sqliteTable(
     blocked: integer("blocked", { mode: "boolean" }).notNull().default(false),
     claimed_until: integer("claimed_until"),
     claimed_by: text("claimed_by"),
+    // Boot id of the process that made the current claim. When it no longer
+    // matches the running process's boot id, the claiming worker died with that
+    // process (orphaned claim) — the task is stranded until the claim TTL lapses.
+    // Surfaced in the UI as a "worker dead" state with a manual Recover.
+    claim_gen: text("claim_gen"),
     created_at: integer("created_at").notNull(),
     started_at: integer("started_at"),
     stage_entered_at: integer("stage_entered_at").notNull(),

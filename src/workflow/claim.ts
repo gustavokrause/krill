@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { projects, tasks, type Task, type TaskStatus } from "@/db/schema";
+import { getBootId } from "./boot-id";
 import { checkEligibility } from "./eligibility";
 import { STAGE_TO_PICK_STATUS, type Stage, now } from "./types";
 
@@ -61,6 +62,7 @@ export function claim(input: ClaimInput): Task | null {
           .set({
             claimed_until: expiry,
             claimed_by: input.workerId,
+            claim_gen: getBootId(),
             updated_at: ts,
           })
           .where(

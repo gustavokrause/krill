@@ -62,7 +62,22 @@ const KIND_COLOR: Record<"plan" | "deliverable" | "conflict", string> = {
 
 const TERMINAL = new Set<TaskStatus>(["DONE", "CANCELED"]);
 
+// Stages that hold a claim while a worker runs them. A held claim from a prior
+// process (claim_gen ≠ current boot id) in one of these = orphaned worker.
+const ACTIVE_CLAIMED = new Set<TaskStatus>([
+  "PLANNING",
+  "IMPLEMENTING",
+  "AI-REVIEW",
+  "PUBLISHING",
+]);
+
 const STALE_THRESHOLD_SEC = 86400;
+
+function fmtCountdown(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
 
 function ageLabel(seconds: number): string {
   if (seconds < 3600) return `${Math.max(1, Math.floor(seconds / 60))}m`;
@@ -82,10 +97,14 @@ export function TaskCard({
   task,
   project,
   stuck,
+  bootId,
+  onRecover,
 }: {
   task: Task;
   project?: Project;
   stuck?: StuckEntry;
+  bootId?: string | null;
+  onRecover?: (id: string) => void;
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -93,6 +112,28 @@ export function TaskCard({
   const ageSec = Math.floor(Date.now() / 1000) - task.stage_entered_at;
   const showAge =
     mounted && !TERMINAL.has(task.status) && ageSec >= STALE_THRESHOLD_SEC;
+
+  // Orphaned claim: the worker that claimed this died with its process (its
+  // claim_gen no longer matches the running boot id). The task is stranded in
+  // its stage until the claim TTL lapses — surface it + offer manual recover.
+  // A held claim whose generation isn't this process's was made by a dead one.
+  // `claim_gen !== bootId` also catches NULL (legacy claims from before this
+  // feature, or in-flight tasks killed by the very restart that deployed it):
+  // the new code stamps claim_gen on every claim, so anything else is orphaned.
+  const orphaned =
+    mounted &&
+    !!bootId &&
+    !!task.claimed_by &&
+    task.claim_gen !== bootId &&
+    ACTIVE_CLAIMED.has(task.status);
+
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    if (!orphaned) return;
+    const id = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [orphaned]);
+  const recoverEta = (task.claimed_until ?? 0) - nowSec;
 
   const Icon = STATUS_ICON[task.status];
   const iconColor = STATUS_COLOR[task.status];
@@ -108,9 +149,11 @@ export function TaskCard({
     <Link
       href={`/tasks/${task.id}`}
       className={`block border rounded-sm px-3 py-2 hover:border-border-strong ${
-        armed
-          ? "border-warning/50 bg-warning/5"
-          : "border-border bg-surface-2"
+        orphaned
+          ? "border-danger/50 bg-danger/5"
+          : armed
+            ? "border-warning/50 bg-warning/5"
+            : "border-border bg-surface-2"
       }`}
     >
       <div className="flex items-start gap-2">
@@ -155,6 +198,31 @@ export function TaskCard({
           </Tooltip>
         ) : null}
       </div>
+      {orphaned ? (
+        <div className="mt-1.5 flex items-center justify-between gap-2 rounded-sm border border-danger/40 bg-danger/10 px-2 py-1">
+          <span className="inline-flex items-center gap-1 text-[11px] text-danger font-medium min-w-0">
+            <AlertTriangle className="h-3 w-3 shrink-0" />
+            <span className="truncate">
+              worker dead ·{" "}
+              {recoverEta > 0
+                ? `auto-recovers in ${fmtCountdown(recoverEta)}`
+                : "reclaiming…"}
+            </span>
+          </span>
+          <button
+            type="button"
+            aria-label={`Recover ${task.id}`}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onRecover?.(task.id);
+            }}
+            className="shrink-0 px-2 py-0.5 rounded-sm bg-danger text-white text-[11px] font-medium hover:bg-danger/90"
+          >
+            Recover
+          </button>
+        </div>
+      ) : null}
       <div className="flex items-center justify-between gap-2 mt-1.5">
         <div className="flex items-center gap-1.5 min-w-0">
           <PriorityBadge priority={task.priority} />

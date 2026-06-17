@@ -24,6 +24,9 @@ export type HealthSnapshot = {
   stuck: StuckEntry[];
   sse_listeners: number;
   pinned_claude_version: string | null;
+  boot_id: string;
+  active_claims: number;
+  active_claim_ids: string[];
 };
 
 async function jsonFetch<T>(
@@ -112,6 +115,11 @@ export const api = {
     }).then((r) => r.task),
   deleteTask: (id: string) =>
     jsonFetch<void>(`/api/tasks/${id}`, { method: "DELETE" }),
+  recoverTask: (id: string) =>
+    jsonFetch<{ task: Task; recovered: boolean }>(
+      `/api/tasks/${id}/recover`,
+      { method: "POST" },
+    ).then((r) => r.task),
 
   listComments: (taskId: string) =>
     jsonFetch<{ comments: Comment[] }>(`/api/tasks/${taskId}/comments`).then(

@@ -83,7 +83,10 @@ export async function tick(stage: Stage): Promise<TickResult> {
         stage: err.stage,
         summary: `${err.message} (${err.stage} ${err.taskId})`,
         detail: err.detail,
-        action_url: err.actionUrl ?? null,
+        // Never persist the captured OAuth/login URL: it's single-use and
+        // process-scoped (dead once this worker exits). Auth must be redone in a
+        // live interactive session; the blocker guides that, then Resume re-runs.
+        action_url: null,
       });
       console.warn(`[tick:${stage}] blocked ${err.taskId}: ${err.message}`);
       return { ran: false, reason: "blocked", taskId: err.taskId };

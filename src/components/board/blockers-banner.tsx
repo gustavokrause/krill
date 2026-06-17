@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, ExternalLink } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import type { Blocker } from "@/db/schema";
 
 const j = async (url: string, opts?: RequestInit) => (await fetch(url, opts)).json();
@@ -11,7 +11,7 @@ const j = async (url: string, opts?: RequestInit) => (await fetch(url, opts)).js
 function remedy(kind: string): string {
   switch (kind) {
     case "mcp_auth":
-      return "krill's headless runner can't do a browser sign-in. Open the link to authorize (or run `claude` in a terminal on this machine and complete the MCP authorization). The token caches, so krill reuses it — then Resume to re-run the stage.";
+      return "krill's headless runner can't do a browser sign-in, and the captured auth link is single-use — it dies with the worker, so there's nothing to click here. Authenticate the MCP once in an interactive session on this machine (run `claude`, then `/mcp` → authorize the server, e.g. Supabase). The token caches, so krill reuses it — then Resume to re-run the stage.";
     case "cli_login":
       return "Run `claude` in a terminal on this machine and complete `/login`. Then Resume to re-run the stage.";
     default:
@@ -70,16 +70,6 @@ export function BlockersBanner() {
                   <div className="text-text-2 mt-1 font-mono whitespace-pre-wrap break-all line-clamp-3">
                     {b.detail}
                   </div>
-                ) : null}
-                {b.action_url ? (
-                  <a
-                    href={b.action_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-1 inline-flex items-center gap-1 text-info hover:underline"
-                  >
-                    <ExternalLink className="h-3 w-3" /> Open to authorize
-                  </a>
                 ) : null}
                 <div className="text-text-2 mt-1.5 leading-relaxed">{remedy(b.kind)}</div>
               </div>
