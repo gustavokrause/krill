@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/db/client";
 import { comments, projects, tasks } from "@/db/schema";
-import { addPrComment } from "@/git";
+import { addPrComment, closePr, deleteLocalBranch, deleteRemoteBranch } from "@/git";
 import {
   apiErrorResponse,
   invalidState,
@@ -118,6 +118,40 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     }
 
     await applyTransitionSideEffects(id, from, body.to);
+
+    // Cancel-time PR/branch teardown — only when the human explicitly opted in
+    // via cancel_options. Runs AFTER applyTransitionSideEffects so the worktree
+    // is already gone before we attempt branch delete. PR close first (needs the
+    // remote branch to exist); branch delete second. Both non-fatal.
+    if (body.to === "CANCELED" && body.cancel_options) {
+      const cancelProject = db
+        .select()
+        .from(projects)
+        .where(eq(projects.id, existing.project_id))
+        .get();
+      if (cancelProject?.has_repo) {
+        const { close_pr, delete_branch } = body.cancel_options;
+        if (close_pr && existing.delivery_url && /^https?:\/\//.test(existing.delivery_url)) {
+          try {
+            await closePr(cancelProject.folder_path, existing.delivery_url);
+          } catch (err) {
+            console.warn(`cancel: pr close failed for ${id}:`, err);
+          }
+        }
+        if (delete_branch && existing.branch) {
+          try {
+            await deleteLocalBranch(cancelProject.folder_path, existing.branch);
+          } catch (err) {
+            console.warn(`cancel: local branch delete failed for ${id}:`, err);
+          }
+          try {
+            await deleteRemoteBranch(cancelProject.folder_path, existing.branch);
+          } catch (err) {
+            console.warn(`cancel: remote branch delete failed for ${id}:`, err);
+          }
+        }
+      }
+    }
 
     // A3: declining/cancelling a task cancels its dependent subtree, and counts
     // toward the project's auto-finish failure budget (breaker).

@@ -50,6 +50,7 @@ import { TaskCard, TaskCardPreview } from "./task-card";
 import { DRAG_ACTIVATION_PX } from "./drag-constants";
 import { WorkflowModal } from "./workflow-modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { CancelTaskDialog, type CancelOptions } from "./cancel-task-dialog";
 
 type ColumnDef = {
   title: string;
@@ -559,6 +560,7 @@ export function Board({
   const toast = useToast();
   const [pickerSaving, setPickerSaving] = useState(false);
   const [automationSaving, setAutomationSaving] = useState(false);
+  const [pendingCancel, setPendingCancel] = useState<{ task: Task; snapshot: Task } | null>(null);
 
   // useState seeds once on mount; re-sync when the server prop changes so
   // router.refresh() (fired after create/edit) surfaces new rows. Without
@@ -691,9 +693,35 @@ export function Board({
     [upsertTask],
   );
 
+  const byProject = useMemo(() => {
+    const map = new Map<string, Project>();
+    for (const p of projects) map.set(p.id, p);
+    return map;
+  }, [projects]);
+
   const onDragStart = useCallback(({ active }: DragStartEvent) => {
     setActiveTask(tasks.find((t) => t.id === active.id) ?? null);
   }, [tasks]);
+
+  const fireCancelTransition = useCallback(
+    (task: Task, snapshot: Task, cancelOpts?: CancelOptions) => {
+      void api.transitionTask(task.id, { to: "CANCELED", ...(cancelOpts ? { cancel_options: cancelOpts } : {}) }).then(
+        (updated) => {
+          upsertTask(updated);
+          toast.push({ variant: "success", title: "Moved to CANCELED" });
+        },
+        (err) => {
+          upsertTask(snapshot);
+          toast.push({
+            variant: "danger",
+            title: "Transition failed",
+            description: (err as Error).message,
+          });
+        },
+      );
+    },
+    [upsertTask, toast],
+  );
 
   const onDragEnd = useCallback(
     ({ active, over }: DragEndEvent) => {
@@ -705,6 +733,20 @@ export function Board({
       const to = over.id as TaskStatus;
       if (!DRAG_ALLOWED_TO[from].includes(to)) return;
       const snapshot = task;
+
+      // When dragging to CANCELED on a repo project with a PR or branch,
+      // pause and open the cancel dialog instead of firing immediately.
+      if (to === "CANCELED") {
+        const proj = byProject.get(task.project_id);
+        const hasPrUrl = !!(task.delivery_url?.startsWith("http"));
+        const hasBranch = !!task.branch;
+        if (proj?.has_repo && (hasPrUrl || hasBranch)) {
+          upsertTask({ ...task, status: to });
+          setPendingCancel({ task, snapshot });
+          return;
+        }
+      }
+
       upsertTask({ ...task, status: to });
       void api.transitionTask(task.id, { to }).then(
         (updated) => {
@@ -721,7 +763,7 @@ export function Board({
         },
       );
     },
-    [tasks, upsertTask, toast],
+    [tasks, upsertTask, toast, byProject],
   );
 
   const onDragCancel = useCallback(() => setActiveTask(null), []);
@@ -838,12 +880,6 @@ export function Board({
       // ignore
     }
   }, [bySlug, searchParams, setProjectFilter]);
-
-  const byProject = useMemo(() => {
-    const map = new Map<string, Project>();
-    for (const p of projects) map.set(p.id, p);
-    return map;
-  }, [projects]);
 
   const filteredProjectId =
     projectFilter === "all" ? null : bySlug.get(projectFilter)?.id ?? null;
@@ -969,6 +1005,7 @@ export function Board({
           ? `repeat(${nonCanceledCols}, minmax(${COLUMN_MIN_WIDTH_PX}px, 1fr)) minmax(${CANCELED_MIN_WIDTH_PX}px, 0.55fr)`
           : `repeat(${nonCanceledCols}, minmax(${COLUMN_MIN_WIDTH_PX}px, 1fr))`;
         return (
+          <>
           <DndContext
             sensors={sensors}
             onDragStart={onDragStart}
@@ -1141,6 +1178,27 @@ export function Board({
             {activeTask ? <TaskCardPreview task={activeTask} /> : null}
           </DragOverlay>
           </DndContext>
+          {pendingCancel ? (
+            <CancelTaskDialog
+              open
+              onOpenChange={(open) => {
+                if (!open) {
+                  upsertTask(pendingCancel.snapshot);
+                  setPendingCancel(null);
+                }
+              }}
+              hasPrUrl={!!(pendingCancel.task.delivery_url?.startsWith("http"))}
+              hasBranch={!!pendingCancel.task.branch}
+              prUrl={pendingCancel.task.delivery_url?.startsWith("http") ? pendingCancel.task.delivery_url : undefined}
+              branchName={pendingCancel.task.branch ?? undefined}
+              onConfirm={async (opts) => {
+                const { task, snapshot } = pendingCancel;
+                setPendingCancel(null);
+                fireCancelTransition(task, snapshot, opts);
+              }}
+            />
+          ) : null}
+          </>
         );
       })()}
     </main>
