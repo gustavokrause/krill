@@ -61,7 +61,7 @@ Publish policy + `auto_publish` are typically set by the upstream strategy layer
 ## Requirements
 
 - [Claude Code CLI](https://claude.ai/code) installed and authenticated
-- Node.js 18+
+- Node.js 22+
 - Git (optional — non-repo projects work too)
 
 ## Quick start
