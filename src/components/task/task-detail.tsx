@@ -20,6 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { CancelTaskDialog, type CancelOptions } from "@/components/board/cancel-task-dialog";
 import {
   ArrowLeft,
   ArrowRight,
@@ -164,6 +165,7 @@ export function TaskDetail({
   const [busy, setBusy] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [config, setConfig] = useState<GlobalConfig>(initialConfig);
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
 
   useEventSource({
     any: (e) => {
@@ -198,7 +200,7 @@ export function TaskDetail({
   );
 
   const transitionTo = useCallback(
-    async (to: TaskStatus) => {
+    async (to: TaskStatus, cancelOpts?: CancelOptions) => {
       if (busy) return;
       setBusy(true);
       try {
@@ -209,6 +211,7 @@ export function TaskDetail({
         const next = await api.transitionTask(task.id, {
           to,
           ...(pendingNote ? { comment: { author: "human", text: pendingNote } } : {}),
+          ...(cancelOpts ? { cancel_options: cancelOpts } : {}),
         });
         setTask(next);
         if (pendingNote) setCommentText("");
@@ -659,12 +662,22 @@ export function TaskDetail({
                           task.pending_review_kind === "deliverable" &&
                           (task.delivery_url?.startsWith("branch:") ?? false) &&
                           project?.merge_to_main !== false;
+                        // Cancel on a repo project with a PR or branch → show
+                        // the close-PR / delete-branch modal.
+                        const hasPrUrl = !!(
+                          task.delivery_url?.startsWith("http")
+                        );
+                        const hasBranch = !!task.branch;
+                        const needsCancelDialog =
+                          intent === "cancel" &&
+                          project?.has_repo &&
+                          (hasPrUrl || hasBranch);
                         const btn = (
                           <button
                             key={s}
                             type="button"
                             onClick={
-                              needsBranchConfirm
+                              needsBranchConfirm || needsCancelDialog
                                 ? undefined
                                 : () => transitionTo(s)
                             }
@@ -698,6 +711,37 @@ export function TaskDetail({
                               trigger={btn}
                               onConfirm={() => transitionTo(s)}
                             />
+                          );
+                        }
+                        if (needsCancelDialog) {
+                          return (
+                            <div key={s}>
+                              <button
+                                type="button"
+                                onClick={() => setCancelDialogOpen(true)}
+                                disabled={busy || isSolving}
+                                className={cn(
+                                  "w-full flex items-center gap-2.5 h-9 px-3 rounded-md border text-sm font-medium transition-colors",
+                                  "disabled:opacity-50 disabled:cursor-not-allowed",
+                                  "focus:outline-none focus-visible:ring-1 focus-visible:ring-primary",
+                                  INTENT_STYLE[intent].cls,
+                                )}
+                              >
+                                <Icon className="h-4 w-4 shrink-0" />
+                                <span className="flex-1 text-left whitespace-nowrap truncate">
+                                  {labelFor(task.status, s, intent, task.pending_review_kind)}
+                                </span>
+                              </button>
+                              <CancelTaskDialog
+                                open={cancelDialogOpen}
+                                onOpenChange={setCancelDialogOpen}
+                                hasPrUrl={hasPrUrl}
+                                hasBranch={hasBranch}
+                                prUrl={hasPrUrl ? task.delivery_url ?? undefined : undefined}
+                                branchName={task.branch ?? undefined}
+                                onConfirm={(opts) => transitionTo(s, opts)}
+                              />
+                            </div>
                           );
                         }
                         return btn;

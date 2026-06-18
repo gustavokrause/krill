@@ -103,6 +103,7 @@ export const api = {
       to: TaskStatus;
       from?: TaskStatus;
       comment?: { author: "human" | "ai"; text: string };
+      cancel_options?: { close_pr: boolean; delete_branch: boolean };
     },
   ) =>
     jsonFetch<{ task: Task }>(`/api/tasks/${id}/transition`, {

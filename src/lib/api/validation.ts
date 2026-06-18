@@ -81,6 +81,12 @@ export const taskTransitionSchema = z.object({
       text: z.string().min(1),
     })
     .optional(),
+  cancel_options: z
+    .object({
+      close_pr: z.boolean(),
+      delete_branch: z.boolean(),
+    })
+    .optional(),
 });
 
 export const commentCreateSchema = z.object({
