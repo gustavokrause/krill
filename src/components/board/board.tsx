@@ -881,6 +881,12 @@ export function Board({
     }
   }, [bySlug, searchParams, setProjectFilter]);
 
+  const byTaskId = useMemo(() => {
+    const map = new Map<string, Task>();
+    for (const t of tasks) map.set(t.id, t);
+    return map;
+  }, [tasks]);
+
   const filteredProjectId =
     projectFilter === "all" ? null : bySlug.get(projectFilter)?.id ?? null;
 
@@ -984,6 +990,10 @@ export function Board({
                 bootId={health?.boot_id ?? null}
                 onRecover={recover}
                 isDraggable={DRAG_ALLOWED_TO[t.status].length > 0}
+                dependencies={t.depends_on
+                  .map((id) => byTaskId.get(id))
+                  .filter((d): d is Task => d != null)
+                  .map((d) => ({ id: d.id, status: d.status, name: d.name }))}
               />
             ))
           )}
@@ -1129,6 +1139,10 @@ export function Board({
                                 bootId={health?.boot_id ?? null}
                                 onRecover={recover}
                                 isDraggable={DRAG_ALLOWED_TO[t.status].length > 0}
+                                dependencies={t.depends_on
+                                  .map((id) => byTaskId.get(id))
+                                  .filter((d): d is Task => d != null)
+                                  .map((d) => ({ id: d.id, status: d.status, name: d.name }))}
                               />
                             ))
                           )}
@@ -1164,6 +1178,10 @@ export function Board({
                         bootId={health?.boot_id ?? null}
                         onRecover={recover}
                         isDraggable={DRAG_ALLOWED_TO[t.status].length > 0}
+                        dependencies={t.depends_on
+                          .map((id) => byTaskId.get(id))
+                          .filter((d): d is Task => d != null)
+                          .map((d) => ({ id: d.id, status: d.status, name: d.name }))}
                       />
                     ))
                   )}
