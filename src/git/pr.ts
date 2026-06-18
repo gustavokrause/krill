@@ -145,6 +145,19 @@ export async function mergePr(
 }
 
 /**
+ * Close an open PR. Idempotent: silently OK when the PR is already closed or
+ * merged. Branch deletion is intentionally NOT bundled here — the caller
+ * controls that separately via deleteLocalBranch / deleteRemoteBranch.
+ */
+export async function closePr(repoCwd: string, prUrl: string): Promise<void> {
+  const res = await execCmd("gh", ["pr", "close", prUrl], { cwd: repoCwd });
+  if (res.exitCode === 0) return;
+  const lower = res.stderr.toLowerCase();
+  if (lower.includes("already closed") || lower.includes("pull request state") || lower.includes("not open")) return;
+  throwIfFailed(res, "gh pr close");
+}
+
+/**
  * Delete the remote branch on origin. Idempotent: succeeds silently when
  * the branch is already gone (e.g., previous --delete-branch run, or a
  * human deleted it on GitHub). Use on DONE cleanup after the worktree is
