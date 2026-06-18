@@ -13,6 +13,7 @@ import {
   Eye,
   FastForward,
   GitBranch,
+  Link2,
   Pause,
   Pencil,
   Upload,
@@ -102,6 +103,7 @@ export function TaskCard({
   bootId,
   onRecover,
   isDraggable,
+  dependencies = [],
 }: {
   task: Task;
   project?: Project;
@@ -109,6 +111,7 @@ export function TaskCard({
   bootId?: string | null;
   onRecover?: (id: string) => void;
   isDraggable?: boolean;
+  dependencies?: Array<{ id: string; status: TaskStatus; name: string }>;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
@@ -326,6 +329,28 @@ export function TaskCard({
           </span>
         ) : null}
       </div>
+      {dependencies.length > 0 && !TERMINAL.has(task.status) ? (
+        <Tooltip
+          title="Waiting on"
+          description={dependencies.map((d) => `${d.id} (${d.status})`).join(", ")}
+          side="top"
+        >
+          <div className="flex items-center gap-1 mt-1">
+            <Link2 className="h-2.5 w-2.5 shrink-0 text-text-3" />
+            <span className="font-mono text-[10px] text-text-3">
+              {dependencies.slice(0, 3).map((d, i) => (
+                <span key={d.id}>
+                  {i > 0 ? ", " : ""}
+                  <span className={TERMINAL.has(d.status) ? "line-through" : ""}>
+                    {d.id}
+                  </span>
+                </span>
+              ))}
+              {dependencies.length > 3 ? ` (+${dependencies.length - 3})` : ""}
+            </span>
+          </div>
+        </Tooltip>
+      ) : null}
       {task.affected_paths.length > 0 ? (
         <p className="text-[10px] text-text-3 mt-1 font-mono truncate">
           {task.affected_paths.slice(0, 2).join(" ")}
