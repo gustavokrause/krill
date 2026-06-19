@@ -521,6 +521,26 @@ async function publishWorkspace(taskId: string): Promise<void> {
     .where(eq(tasks.id, task.id))
     .run();
 
+  // Auto-finish (A2) for no-repo: the deliverable is already copied to
+  // folder_path above, so "finishing" is just skipping the review gate to DONE.
+  // No merge / PR / remote here, so none of the repo-path suppressors
+  // (merge_to_main off, draft PR, remote-left-behind) apply — eligibility is
+  // purely the double gate task.auto_publish + project.allow_auto_finish.
+  if (autoFinishEligible(task, project)) {
+    appendAiComment(
+      task.id,
+      "auto-finished (auto_publish + allow_auto_finish) — deliverable copied to the project folder, no human gate",
+    );
+    const done = transitionStatus({
+      taskId: task.id,
+      from: "PUBLISHING",
+      to: "DONE",
+      endedAt: now(),
+    });
+    if (done) await applyTransitionSideEffects(task.id, "PUBLISHING", "DONE");
+    return;
+  }
+
   const ok = transitionStatus({
     taskId: task.id,
     from: "PUBLISHING",
