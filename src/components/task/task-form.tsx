@@ -340,7 +340,7 @@ export function TaskForm(props: Mode) {
           />
           <SkipRow
             label="Auto-finish (⚠ dangerous)"
-            helper="Skip the deliverable review gate and auto-merge to DONE unattended. Honored only when the project also enables Allow auto-finish. AI review still applies."
+            helper="Skip the deliverable review gate and finish to DONE unattended (repo: squash-merge; no-repo: file copied to the folder). Honored only when the project also enables Allow auto-finish. AI review still applies."
             checked={autoPublish}
             onChange={(v) => {
               setAutoPublish(v);

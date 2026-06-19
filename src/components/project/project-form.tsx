@@ -255,10 +255,31 @@ export function ProjectForm(props: Mode) {
             </p>
           </div>
           {!isRepo ? (
+          <>
             <p className="text-xs text-text-3">
-              No git repo — publishing policy applies to repos only. The
-              deliverable is copied into the project folder for review instead.
+              No git repo — the PR / push / merge dials apply to repos only. The
+              deliverable is copied into the project folder.
             </p>
+            <div className="flex items-center justify-between gap-3 rounded-sm border border-warning/40 bg-warning/5 px-3 py-2">
+              <div>
+                <Label>
+                  Allow auto-finish
+                  <span className="text-warning ml-1 text-xs">⚠ dangerous</span>
+                </Label>
+                <p className="text-xs text-text-2">
+                  When on, tasks armed with <code>auto_publish</code> skip the
+                  deliverable review and go straight to DONE once the file is
+                  copied to the folder — no human gate. Double-gated by the task
+                  flag; AI review stays on. (No merge here, so the repo dials
+                  don&apos;t apply.)
+                </p>
+              </div>
+              <Switch
+                checked={allowAutoFinish}
+                onCheckedChange={setAllowAutoFinish}
+              />
+            </div>
+          </>
           ) : (
           <>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
