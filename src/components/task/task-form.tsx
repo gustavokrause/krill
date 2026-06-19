@@ -115,14 +115,20 @@ export function TaskForm(props: Mode) {
           draft_pr: draftPr,
         });
         toast.push({ variant: "success", title: `Created ${task.id}` });
+        // Land the board on the project the task was created under (the picker
+        // may differ from where the modal was opened) and persist it. Use
+        // router.push (not back/replace): push to `/?project=slug` resolves a
+        // fresh tree so the intercepted @modal slot falls back to default.tsx
+        // and the modal closes — a replace to the same pathname leaves it
+        // mounted, and back would revert to the old filter the modal opened on.
         const slug = props.projects.find((p) => p.id === projectId)?.slug;
         if (slug) {
           try {
             window.localStorage.setItem("board.projectFilter", slug);
           } catch {}
-          router.replace(`/?project=${slug}`);
+          router.push(`/?project=${slug}`);
         } else {
-          router.back();
+          router.push("/");
         }
         router.refresh();
       } else {
