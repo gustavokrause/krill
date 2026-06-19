@@ -115,7 +115,15 @@ export function TaskForm(props: Mode) {
           draft_pr: draftPr,
         });
         toast.push({ variant: "success", title: `Created ${task.id}` });
-        router.back();
+        const slug = props.projects.find((p) => p.id === projectId)?.slug;
+        if (slug) {
+          try {
+            window.localStorage.setItem("board.projectFilter", slug);
+          } catch {}
+          router.replace(`/?project=${slug}`);
+        } else {
+          router.back();
+        }
         router.refresh();
       } else {
         await api.patchTask(props.task.id, {
