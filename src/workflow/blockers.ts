@@ -33,9 +33,16 @@ export function getBlocker(id: string): Blocker | undefined {
   return db.select().from(blockers).where(eq(blockers.id, id)).get();
 }
 
-/** Flag/unflag a task as paused on a block; claim() skips blocked tasks. */
+/** Flag/unflag a task as paused on a block; claim() skips blocked tasks.
+ *  Broadcasts task.updated so the board's blocked badge appears/clears live. */
 export function setTaskBlocked(taskId: string, blocked: boolean): void {
-  db.update(tasks).set({ blocked, updated_at: now() }).where(eq(tasks.id, taskId)).run();
+  const updated = db
+    .update(tasks)
+    .set({ blocked, updated_at: now() })
+    .where(eq(tasks.id, taskId))
+    .returning()
+    .all();
+  if (updated[0]) broadcast({ type: "task.updated", task: updated[0] });
 }
 
 /**
@@ -80,19 +87,24 @@ export function addBlocker(b: {
   return row as Blocker;
 }
 
+// Kinds that pause the global todo-picker when filed (follow-ups for scope
+// review; interactive auth walls so the picker doesn't pull more same-MCP tasks
+// into the same wall). Resolving any of them re-enables picking.
+const PICKER_PAUSING_KINDS = new Set(["followup", "mcp_auth", "cli_login"]);
+
 /**
- * Resolve a blocker. On "resolved": a `followup` blocker re-enables the
- * todo-picker it paused; any other kind unblocks its task so the next tick
- * re-runs the paused stage. "dismissed" clears the blocker without either
- * (a follow-up dismiss leaves the picker paused).
+ * Resolve a blocker. On "resolved": re-enable the todo-picker for any kind that
+ * paused it, and unblock its task so the next tick re-runs the paused stage.
+ * "dismissed" clears the blocker without either (a dismiss leaves the picker
+ * paused — a follow-up still needs review; an auth wall still isn't cleared).
  */
 export function resolveBlocker(id: string, status: "resolved" | "dismissed" = "resolved"): Blocker | undefined {
   const b = getBlocker(id);
   if (!b) return undefined;
   db.update(blockers).set({ status, resolved_at: now() }).where(eq(blockers.id, id)).run();
   if (status === "resolved") {
-    if (b.kind === "followup") setTodoPickerEnabled(true);
-    else if (b.task_id) setTaskBlocked(b.task_id, false);
+    if (PICKER_PAUSING_KINDS.has(b.kind)) setTodoPickerEnabled(true);
+    if (b.task_id) setTaskBlocked(b.task_id, false);
   }
   return getBlocker(id);
 }
