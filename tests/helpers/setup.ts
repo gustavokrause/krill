@@ -44,6 +44,8 @@ export const tables = schema;
 
 export function cleanData(): void {
   db.run(sql`DELETE FROM comments`);
+  db.run(sql`DELETE FROM blockers`);
+  db.run(sql`DELETE FROM followups`);
   db.run(sql`DELETE FROM tasks`);
   db.run(sql`DELETE FROM projects`);
 }

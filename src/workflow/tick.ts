@@ -8,14 +8,15 @@ import {
   isBackoffActive,
   resetBackoff,
 } from "./backoff";
-import { addBlocker, setTaskBlocked } from "./blockers";
+import { addBlocker, setTaskBlocked, setTodoPickerEnabled } from "./blockers";
+import { appendAiComment } from "./comment";
 import { releaseClaim } from "./transition";
 import { runAiReview } from "./stages/ai-review";
 import { runImplementing } from "./stages/implementing";
 import { runPlanning } from "./stages/planning";
 import { runPublishing } from "./stages/publishing";
 import { runTodoPicker } from "./stages/todo-picker";
-import type { Stage } from "./types";
+import { STAGE_TO_PICK_STATUS, type Stage } from "./types";
 
 const HANDLERS: Record<Stage, (workerId: string) => Promise<string | null>> = {
   todo_picker: runTodoPicker,
@@ -88,6 +89,19 @@ export async function tick(stage: Stage): Promise<TickResult> {
         // live interactive session; the blocker guides that, then Resume re-runs.
         action_url: null,
       });
+      // (a) Leave a trace ON the task — the banner blocker is easy to miss, and a
+      // blocked task otherwise sits silently in its stage with no on-card "why".
+      const need = err.kind === "mcp_auth" ? "MCP authentication" : "CLI login";
+      appendAiComment(
+        err.taskId,
+        `Paused — needs ${need}. ${err.message} Clear the blocker (authenticate in an interactive session), then Resume to re-run ${err.stage}.`,
+        STAGE_TO_PICK_STATUS[stage],
+      );
+      // (c) Pause the global todo-picker while an interactive auth wall is open —
+      // otherwise the picker keeps pulling new tasks that need the same MCP/login
+      // and each burns a worker run hitting the same wall. Resolving the blocker
+      // re-enables it (blockers.resolveBlocker). Mirrors the follow-up pause.
+      setTodoPickerEnabled(false);
       console.warn(`[tick:${stage}] blocked ${err.taskId}: ${err.message}`);
       return { ran: false, reason: "blocked", taskId: err.taskId };
     }

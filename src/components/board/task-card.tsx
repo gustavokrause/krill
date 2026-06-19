@@ -266,6 +266,17 @@ export function TaskCard({
       <div className="flex items-center justify-between gap-2 mt-1.5">
         <div className="flex items-center gap-1.5 min-w-0">
           <PriorityBadge priority={task.priority} />
+          {task.blocked ? (
+            <Tooltip
+              title="Paused on a blocker"
+              description="Needs an interactive auth/login the runner can't do. Resolve it in the banner above (authenticate, then Resume) to re-run the stage."
+              side="top"
+            >
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono border bg-warning/10 text-warning border-warning/40">
+                <AlertTriangle className="h-2.5 w-2.5" /> blocked
+              </span>
+            </Tooltip>
+          ) : null}
           {kind ? (
             <span
               className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono border ${KIND_COLOR[kind]}`}
