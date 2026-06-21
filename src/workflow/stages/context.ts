@@ -53,6 +53,7 @@ export function pickPromptFor(
     planning: `planning-${mode}.md`,
     implementing: `implementing-${mode}.md`,
     ai_review: `ai-review-${mode}.md`,
+    verify: `verify-${mode}.md`,
   };
   return loadPrompt(map[stage]);
 }

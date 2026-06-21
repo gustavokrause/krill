@@ -19,7 +19,7 @@ type NodeSpec = {
   kind: NodeKind;
 };
 
-const VIEW_W = 1760;
+const VIEW_W = 1980;
 const VIEW_H = 460;
 const BOX_W = 120;
 const BOX_H = 32;
@@ -33,10 +33,11 @@ const NODES: NodeSpec[] = [
   { id: "PLANNING", label: "PLANNING", cx: 490, cy: TOP_Y, kind: "info" },
   { id: "IMPLEMENTING", label: "IMPLEMENTING", cx: 720, cy: TOP_Y, kind: "info" },
   { id: "AI-REVIEW", label: "AI-REVIEW", cx: 940, cy: TOP_Y, kind: "warning" },
-  { id: "PUBLISHING", label: "PUBLISHING", cx: 1160, cy: TOP_Y, kind: "info" },
-  { id: "NEEDS_REVIEW", label: "NEEDS_REVIEW", cx: 1400, cy: TOP_Y, kind: "warning" },
-  { id: "DONE", label: "DONE", cx: 1640, cy: TOP_Y, kind: "success" },
-  { id: "CANCELED", label: "CANCELED", cx: 1640, cy: CANCEL_Y, kind: "muted" },
+  { id: "VERIFYING", label: "VERIFYING", cx: 1160, cy: TOP_Y, kind: "warning" },
+  { id: "PUBLISHING", label: "PUBLISHING", cx: 1380, cy: TOP_Y, kind: "info" },
+  { id: "NEEDS_REVIEW", label: "NEEDS_REVIEW", cx: 1620, cy: TOP_Y, kind: "warning" },
+  { id: "DONE", label: "DONE", cx: 1860, cy: TOP_Y, kind: "success" },
+  { id: "CANCELED", label: "CANCELED", cx: 1860, cy: CANCEL_Y, kind: "muted" },
 ];
 
 const nodeById = (id: string): NodeSpec => {
@@ -304,7 +305,8 @@ const FORWARD_EDGES: { from: string; to: string; label: string }[] = [
   { from: "TODO", to: "PLANNING", label: "auto pick" },
   { from: "PLANNING", to: "IMPLEMENTING", label: "Opus → human approve plan" },
   { from: "IMPLEMENTING", to: "AI-REVIEW", label: "Sonnet" },
-  { from: "AI-REVIEW", to: "PUBLISHING", label: "Opus approve" },
+  { from: "AI-REVIEW", to: "VERIFYING", label: "Opus approve" },
+  { from: "VERIFYING", to: "PUBLISHING", label: "Opus verified" },
   { from: "PUBLISHING", to: "NEEDS_REVIEW", label: "deliverable | conflict" },
   { from: "NEEDS_REVIEW", to: "DONE", label: "human approve" },
 ];
@@ -312,13 +314,15 @@ const FORWARD_EDGES: { from: string; to: string; label: string }[] = [
 // Decline arcs curve under the main row.
 const DECLINE_EDGES: { from: string; to: string; label: string }[] = [
   { from: "AI-REVIEW", to: "IMPLEMENTING", label: "Opus decline" },
+  { from: "VERIFYING", to: "IMPLEMENTING", label: "verify fail" },
   { from: "NEEDS_REVIEW", to: "IMPLEMENTING", label: "human decline" },
 ];
 
 const SKIP_EDGES: { from: string; to: string; label: string }[] = [
   { from: "TODO", to: "IMPLEMENTING", label: "skip_plan" },
   { from: "PLANNING", to: "IMPLEMENTING", label: "skip_plan_review" },
-  { from: "IMPLEMENTING", to: "PUBLISHING", label: "skip_ai_review" },
+  { from: "IMPLEMENTING", to: "VERIFYING", label: "skip_ai_review" },
+  { from: "AI-REVIEW", to: "PUBLISHING", label: "skip_verify" },
   // A2: auto_publish + project.allow_auto_finish → merge straight to DONE.
   { from: "PUBLISHING", to: "DONE", label: "auto-finish" },
 ];
@@ -554,7 +558,7 @@ function Legend() {
         <div className="font-medium text-text mb-1">Models</div>
         <ul className="space-y-0.5">
           <li><span className="font-mono text-text-2">auto</span> — <span className="font-mono text-info">TODO</span> pick (deterministic SQL, no model)</li>
-          <li><span className="font-mono text-ai">Opus</span> — <span className="font-mono text-info">PLANNING</span>, <span className="font-mono text-warning">AI-REVIEW</span></li>
+          <li><span className="font-mono text-ai">Opus</span> — <span className="font-mono text-info">PLANNING</span>, <span className="font-mono text-warning">AI-REVIEW</span>, <span className="font-mono text-warning">VERIFYING</span></li>
           <li><span className="font-mono text-ai">Sonnet</span> — <span className="font-mono text-info">IMPLEMENTING</span>, <span className="font-mono text-info">PUBLISHING</span></li>
           <li><span className="font-mono text-human">human</span> — <span className="font-mono text-warning">NEEDS_REVIEW</span> (plan / deliverable / conflict), <span className="font-mono text-muted">cancel</span></li>
         </ul>
@@ -582,6 +586,7 @@ function Legend() {
           <li><span className="font-mono text-warning">plan</span> — entered after <span className="font-mono text-info">PLANNING</span>. Diagram folds it into the <span className="font-mono">PLANNING → IMPLEMENTING</span> arrow. Approve → <span className="font-mono text-info">IMPLEMENTING</span>; decline → back to <span className="font-mono text-info">PLANNING</span>.</li>
           <li><span className="font-mono text-warning">deliverable</span> — entered after a clean PUBLISHING. Approve → <span className="font-mono text-success">DONE</span> (PR squash-merge when has_repo); decline → <span className="font-mono text-info">IMPLEMENTING</span>.</li>
           <li><span className="font-mono text-warning">conflict</span> — has_repo only. Retry PUBLISHING (re-runs the deterministic merge), Solve with Sonnet (shown only when <span className="font-mono">publishing_solve_conflicts=false</span>), or decline → <span className="font-mono text-info">IMPLEMENTING</span>.</li>
+          <li><span className="font-mono text-warning">verify</span> — VERIFYING failed past <span className="font-mono">max_ai_decline_cycles</span> (couldn&apos;t prove the change runs). Back to <span className="font-mono text-info">IMPLEMENTING</span> to redo, or override straight to <span className="font-mono text-info">PUBLISHING</span>.</li>
         </ul>
       </div>
       <div>
@@ -589,7 +594,8 @@ function Legend() {
         <ul className="space-y-0.5">
           <li><span className="font-mono text-muted">skip_plan</span> — picker routes <span className="font-mono text-info">TODO</span> straight to <span className="font-mono text-info">IMPLEMENTING</span> (no PLANNING tick; setup runs lazily in IMPLEMENTING). Implies skip_plan_review.</li>
           <li><span className="font-mono text-muted">skip_plan_review</span> — auto-approve plan, no <span className="text-human">human</span> gate. Ignored when skip_plan is on.</li>
-          <li><span className="font-mono text-muted">skip_ai_review</span> — <span className="font-mono text-info">IMPLEMENTING</span> jumps straight to <span className="font-mono text-info">PUBLISHING</span>.</li>
+          <li><span className="font-mono text-muted">skip_ai_review</span> — <span className="font-mono text-info">IMPLEMENTING</span> skips <span className="font-mono text-warning">AI-REVIEW</span>, into <span className="font-mono text-warning">VERIFYING</span>.</li>
+          <li><span className="font-mono text-muted">skip_verify</span> — skip <span className="font-mono text-warning">VERIFYING</span> (don&apos;t run the change); go to <span className="font-mono text-info">PUBLISHING</span>. Default ON for non-dev, OFF for dev.</li>
           <li><span className="font-mono text-success">auto_publish</span> — with project <span className="font-mono">allow_auto_finish</span>, <span className="font-mono text-info">PUBLISHING</span> merges straight to <span className="font-mono text-success">DONE</span>, no <span className="text-human">human</span> gate (AI-review still runs). On repos, suppressed when <span className="font-mono">merge_to_main</span> is off, the PR is a draft, or the merge would leave a remote behind; on no-repo projects it always finishes (no merge, so none of those apply).</li>
           <li><span className="font-mono text-warning">max_ai_decline_cycles</span> — after N <span className="text-ai">AI</span> declines/conflicts, force-move to <span className="font-mono text-warning">NEEDS_REVIEW(conflict)</span>.</li>
         </ul>

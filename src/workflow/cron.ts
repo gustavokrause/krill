@@ -1,5 +1,6 @@
 import type { ScheduledTask } from "node-cron";
 import cron from "node-cron";
+import { runEscalationResolver } from "./escalation";
 import { runStuckScanner } from "./stuck";
 import { tick } from "./tick";
 import type { Stage } from "./types";
@@ -41,6 +42,7 @@ const SCHEDULES: Array<{ stage: Stage; expr: string }> = [
   { stage: "ai_review", expr: "5 * * * * *" }, // every 60s at :05
   { stage: "planning", expr: "15 * * * * *" }, // every 60s at :15
   { stage: "publishing", expr: "25 * * * * *" }, // every 60s at :25
+  { stage: "verify", expr: "35 * * * * *" }, // every 60s at :35
   { stage: "implementing", expr: "45 * * * * *" }, // every 60s at :45
 ];
 
@@ -87,12 +89,22 @@ export function registerCrons(): void {
     }),
   );
 
+  // Escalation auto-resolver: a higher-effort pass on open question-escalations.
+  // A background worker (not a pipeline stage), staggered off the stage ticks.
+  s.tasks.push(
+    cron.schedule("50 * * * * *", () => {
+      void runEscalationResolver().catch((err) =>
+        console.error("[cron:resolver] escalation resolver threw:", err),
+      );
+    }),
+  );
+
   const shutdown = () => { stopCrons(); process.exit(0); };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
 
   console.log(
-    `[cron] registered ${s.tasks.length} schedules (5 stages + stuck scanner)`,
+    `[cron] registered ${s.tasks.length} schedules (6 stages + stuck scanner + escalation resolver)`,
   );
 }
 

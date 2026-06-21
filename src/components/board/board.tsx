@@ -52,15 +52,37 @@ import { WorkflowModal } from "./workflow-modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CancelTaskDialog, type CancelOptions } from "./cancel-task-dialog";
 
+// A lane in an expanded column. Usually one status, but may group several under
+// one header (AI-REVIEW holds VERIFYING — same band, distinguished by the card
+// badge). The first status is the lane's primary (drop target + owner badge).
+type Lane = { label: string; statuses: TaskStatus[] };
+
 type ColumnDef = {
   title: string;
   statuses: TaskStatus[];
+  // Optional grouped lanes for the expanded view. Defaults to one lane/status.
+  lanes?: Lane[];
 };
+
+// Expanded lanes for a column (one per status unless it defines its own groups).
+function lanesOf(col: ColumnDef): Lane[] {
+  return col.lanes ?? col.statuses.map((s) => ({ label: s, statuses: [s] }));
+}
 
 const COLUMNS: ColumnDef[] = [
   { title: "Intake", statuses: ["BACKLOG", "TODO"] },
-  { title: "In progress", statuses: ["PLANNING", "IMPLEMENTING", "PUBLISHING"] },
-  { title: "AI review", statuses: ["AI-REVIEW"] },
+  // The automated pipeline in run order: the AI-REVIEW lane (which also holds
+  // VERIFYING) sits between IMPLEMENTING and PUBLISHING, where it actually runs.
+  {
+    title: "In progress",
+    statuses: ["PLANNING", "IMPLEMENTING", "AI-REVIEW", "VERIFYING", "PUBLISHING"],
+    lanes: [
+      { label: "PLANNING", statuses: ["PLANNING"] },
+      { label: "IMPLEMENTING", statuses: ["IMPLEMENTING"] },
+      { label: "AI-REVIEW", statuses: ["AI-REVIEW", "VERIFYING"] },
+      { label: "PUBLISHING", statuses: ["PUBLISHING"] },
+    ],
+  },
   { title: "Needs review", statuses: ["NEEDS_REVIEW"] },
   { title: "Done", statuses: ["DONE"] },
   { title: "Canceled", statuses: ["CANCELED"] },
@@ -108,11 +130,12 @@ const CANCELED_MIN_WIDTH_PX = 140;
 const SPAN_BY_COUNT: Record<number, string> = {
   2: "col-span-2",
   3: "col-span-3",
+  4: "col-span-4",
+  5: "col-span-5",
 };
 
 const COLUMN_TITLE_COLOR: Record<string, string> = {
   "In progress": "text-info",
-  "AI review": "text-warning",
   "Needs review": "text-warning",
   Canceled: "text-text-3",
 };
@@ -124,6 +147,8 @@ const COLUMN_DIM: Record<string, string> = {
 const SUB_GRID_BY_COUNT: Record<number, string> = {
   2: "p-2 grid grid-cols-2 gap-2 flex-1 min-h-0 bg-neutral-100 dark:bg-neutral-950",
   3: "p-2 grid grid-cols-3 gap-2 flex-1 min-h-0 bg-neutral-100 dark:bg-neutral-950",
+  4: "p-2 grid grid-cols-4 gap-2 flex-1 min-h-0 bg-neutral-100 dark:bg-neutral-950",
+  5: "p-2 grid grid-cols-5 gap-2 flex-1 min-h-0 bg-neutral-100 dark:bg-neutral-950",
 };
 
 type Owner = "human" | "ai";
@@ -136,6 +161,7 @@ const AI_STATUSES = new Set<TaskStatus>([
   "PLANNING",
   "IMPLEMENTING",
   "AI-REVIEW",
+  "VERIFYING",
 ]);
 
 // Drag-and-drop transition matrix. Humans can drag from `source` to any status
@@ -149,6 +175,7 @@ const DRAG_ALLOWED_TO: Record<TaskStatus, TaskStatus[]> = {
   PLANNING: [],
   IMPLEMENTING: [],
   "AI-REVIEW": [],
+  VERIFYING: [],
   PUBLISHING: [],
   DONE: [],
   CANCELED: [],
@@ -1006,7 +1033,7 @@ export function Board({
           (acc, c) =>
             acc +
             (EXPANDABLE_TITLES.has(c.title) && expandedColumns.has(c.title)
-              ? c.statuses.length
+              ? lanesOf(c).length
               : 1),
           0,
         );
@@ -1037,7 +1064,7 @@ export function Board({
                   : list.length;
               const isExpandable = EXPANDABLE_TITLES.has(col.title);
               const expanded = isExpandable && expandedColumns.has(col.title);
-              const span = expanded ? SPAN_BY_COUNT[col.statuses.length] : "";
+              const span = expanded ? SPAN_BY_COUNT[lanesOf(col).length] : "";
               const dim = COLUMN_DIM[col.title] ?? "";
               const titleColor = COLUMN_TITLE_COLOR[col.title] ?? "";
               const droppableInCol = col.statuses.filter((s) =>
@@ -1094,19 +1121,22 @@ export function Board({
                 </div>
               </header>
               {expanded ? (
-                <div className={SUB_GRID_BY_COUNT[col.statuses.length]}>
-                  {col.statuses.map((status) => {
-                    const subList = visible.filter((t) => t.status === status);
+                <div className={SUB_GRID_BY_COUNT[lanesOf(col).length]}>
+                  {lanesOf(col).map((lane) => {
+                    const status = lane.statuses[0];
+                    const subList = visible.filter((t) =>
+                      lane.statuses.includes(t.status),
+                    );
                     return (
                       <DroppableSubColumn
-                        key={status}
+                        key={lane.label}
                         status={status}
                         activeStatus={activeStatus}
                       >
                         <header className="flex items-center justify-between px-2 py-1 border-b border-border">
                           <div className="flex items-center gap-1.5 min-w-0">
                             <h3 className="text-[11px] font-mono uppercase tracking-wide text-text-2 truncate">
-                              {status}
+                              {lane.label}
                             </h3>
                             {(() => {
                               const o = ownerOf(status);

@@ -148,7 +148,17 @@ export class RealClaudeRunner implements ClaudeRunner {
         resolveP({ stdout, stderr, exitCode });
       });
 
-      child.stdin.write(input.prompt);
+      // Fill prompt placeholders with the real run values. The prompts carry
+      // {task_id}/{cwd}/{project_*} literally; stages survive an unfilled prompt
+      // only because they call task_context() regardless, but a stricter prompt
+      // (the escalation resolver) refuses to act on a literal `{task_id}`. Fill
+      // them centrally so every prompt sees real values.
+      const filled = input.prompt
+        .replaceAll("{task_id}", input.task.id)
+        .replaceAll("{cwd}", input.cwd)
+        .replaceAll("{project_name}", input.project.name)
+        .replaceAll("{project_slug}", input.project.slug);
+      child.stdin.write(filled);
       child.stdin.end();
     });
   }

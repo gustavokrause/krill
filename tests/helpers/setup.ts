@@ -133,6 +133,11 @@ export function createTask(
       skip_plan: opts.skip_plan ?? false,
       skip_plan_review: opts.skip_plan_review ?? false,
       skip_ai_review: opts.skip_ai_review ?? false,
+      // Default ON so existing stage tests keep their AI-REVIEW → PUBLISHING
+      // path; the verify suite opts in with skip_verify: false.
+      skip_verify: opts.skip_verify ?? true,
+      acceptance: opts.acceptance ?? null,
+      escalation: opts.escalation ?? null,
       auto_publish: opts.auto_publish ?? false,
       create_pr: opts.create_pr ?? null,
       push_remote: opts.push_remote ?? null,

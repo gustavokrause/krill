@@ -17,3 +17,5 @@ Steps:
    The summary is required — it becomes the visible review comment for the human.
 
 Decision rule: minor polish → approve. Missing plan items or unsupported claims → decline with specific feedback.
+
+If you genuinely can't tell whether the deliverable clears the bar (a judgment that needs context you don't have), don't guess an approve/decline — call task_escalate(question, options, evidence) and let a higher-effort pass (then a human) decide.

@@ -56,7 +56,7 @@ function intentFor(
   // NEEDS_REVIEW(deliverable | conflict | empty) → IMPLEMENTING is decline/redo.
   if (
     from === "NEEDS_REVIEW" &&
-    (kind === "deliverable" || kind === "conflict" || kind === "empty") &&
+    (kind === "deliverable" || kind === "conflict" || kind === "empty" || kind === "verify") &&
     to === "IMPLEMENTING"
   ) {
     return "back";
@@ -119,6 +119,38 @@ const INTENT_ORDER: Record<MoveIntent, number> = {
   cancel: 3,
 };
 
+const STAGE_TO_STATUS: Record<string, TaskStatus> = {
+  planning: "PLANNING",
+  implementing: "IMPLEMENTING",
+  ai_review: "AI-REVIEW",
+  verify: "VERIFYING",
+  publishing: "PUBLISHING",
+};
+
+type EscalationShape = {
+  question?: string;
+  options?: string[];
+  evidence?: string;
+  origin_stage?: string;
+  decision?: string;
+  needs_human?: boolean;
+};
+
+function parseEscalation(task: Task): EscalationShape | null {
+  if (!task.escalation) return null;
+  try {
+    return JSON.parse(task.escalation) as EscalationShape;
+  } catch {
+    return null;
+  }
+}
+
+function originStageStatus(task: Task): TaskStatus | null {
+  const esc = parseEscalation(task);
+  const s = esc?.origin_stage;
+  return s && STAGE_TO_STATUS[s] ? STAGE_TO_STATUS[s] : null;
+}
+
 function nextStatusesFor(task: Task): TaskStatus[] {
   switch (task.status) {
     case "BACKLOG":
@@ -131,6 +163,8 @@ function nextStatusesFor(task: Task): TaskStatus[] {
       return ["BACKLOG", "CANCELED"];
     case "AI-REVIEW":
       return ["BACKLOG", "CANCELED"];
+    case "VERIFYING":
+      return ["BACKLOG", "CANCELED"];
     case "PUBLISHING":
       return ["BACKLOG", "CANCELED"];
     case "NEEDS_REVIEW":
@@ -141,6 +175,17 @@ function nextStatusesFor(task: Task): TaskStatus[] {
           return ["DONE", "IMPLEMENTING", "BACKLOG", "CANCELED"];
         case "conflict":
           return ["PUBLISHING", "IMPLEMENTING", "BACKLOG", "CANCELED"];
+        case "verify":
+          // Verification couldn't prove the change. Send back to redo, or
+          // override the gate straight to PUBLISHING if the human is satisfied.
+          return ["IMPLEMENTING", "PUBLISHING", "BACKLOG", "CANCELED"];
+        case "question": {
+          // Escalated judgment call the resolver deferred. Answer it (comment
+          // your decision), then send the task back to the stage it came from.
+          const origin = originStageStatus(task);
+          const back: TaskStatus[] = origin ? [origin] : ["PLANNING", "IMPLEMENTING"];
+          return [...back, "BACKLOG", "CANCELED"];
+        }
         case "empty":
           // Nothing was shipped, but a no-op can still be a valid close: the
           // task may already be satisfied / need no change. Allow DONE (marks
@@ -327,6 +372,28 @@ export function TaskDetail({
         showSolveWithSonnet: false,
       };
     }
+    if (kind === "verify") {
+      return {
+        kind,
+        title: "Verification failed",
+        message:
+          "VERIFYING couldn't prove the change meets its acceptance after repeated tries. Send back to IMPLEMENTING to redo, or override to PUBLISHING if you're satisfied.",
+        showSolveWithSonnet: false,
+      };
+    }
+    if (kind === "question") {
+      const esc = parseEscalation(task);
+      const origin = esc?.origin_stage ?? "the stage";
+      const opts = esc?.options?.length ? `\n\nOptions: ${esc.options.join(" | ")}` : "";
+      const ev = esc?.evidence ? `\n\nEvidence: ${esc.evidence}` : "";
+      return {
+        kind,
+        title: "Needs your decision",
+        message:
+          `The fleet couldn't resolve a judgment call and paused.${esc?.question ? `\n\n${esc.question}` : ""}${opts}${ev}\n\nComment your decision, then send the task back to ${origin}.`,
+        showSolveWithSonnet: false,
+      };
+    }
     return {
       kind,
       title: "Merge conflict",
@@ -335,6 +402,7 @@ export function TaskDetail({
       showSolveWithSonnet: !config.publishing_solve_conflicts,
     };
   }, [
+    task,
     task.status,
     task.pending_review_kind,
     task.delivery_url,
@@ -470,6 +538,7 @@ export function TaskDetail({
         <TabsList>
           <TabsTrigger value="plan">Plan</TabsTrigger>
           <TabsTrigger value="checklist">Checklist</TabsTrigger>
+          <TabsTrigger value="acceptance">Acceptance</TabsTrigger>
           <TabsTrigger value="comments">
             Comments{" "}
             <span className="ml-1 text-xs text-text-2 font-mono">
@@ -496,6 +565,25 @@ export function TaskDetail({
             </pre>
           ) : (
             <p className="text-sm text-text-2">No checklist yet.</p>
+          )}
+        </TabsContent>
+
+        <TabsContent value="acceptance" className="pt-4">
+          {task.acceptance ? (
+            <>
+              <p className="text-xs text-text-2 mb-2">
+                Definition of done — what VERIFYING runs the change against.
+              </p>
+              <pre className="text-sm whitespace-pre-wrap font-mono leading-relaxed border border-border rounded-sm p-4 bg-surface">
+                {task.acceptance}
+              </pre>
+            </>
+          ) : (
+            <p className="text-sm text-text-2">
+              No acceptance set. {task.skip_verify
+                ? "Verification is skipped for this task."
+                : "VERIFYING will fall back to the plan + checklist."}
+            </p>
           )}
         </TabsContent>
 
@@ -559,6 +647,7 @@ export function TaskDetail({
             <MetaRow k="skip_plan" v={String(task.skip_plan)} />
             <MetaRow k="skip_plan_review" v={String(task.skip_plan_review)} />
             <MetaRow k="skip_ai_review" v={String(task.skip_ai_review)} />
+            <MetaRow k="skip_verify" v={String(task.skip_verify)} />
             <MetaRow k="auto_publish" v={String(task.auto_publish)} />
             <MetaRow k="created_at" v={fmt(task.created_at)} />
             <MetaRow k="started_at" v={fmt(task.started_at)} />
@@ -593,7 +682,7 @@ export function TaskDetail({
                   >
                     {reviewContext.title}
                   </h3>
-                  <p className="text-xs text-text-2">{reviewContext.message}</p>
+                  <p className="text-xs text-text-2 whitespace-pre-line">{reviewContext.message}</p>
                   {task.delivery_url ? (
                     task.delivery_url.startsWith("local:") ? (
                       <span

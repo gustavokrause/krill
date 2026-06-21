@@ -39,6 +39,17 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "task_set_acceptance",
+    description:
+      "Set the task's acceptance: a concrete, checkable definition-of-done that VERIFYING runs the change against (e.g. \"after a test-mode checkout, the tenant's plan = the purchased tier\"). Valid only during PLANNING. Only call this when task_context shows acceptance is empty — never overwrite an existing value (it was set deliberately upstream or by a human).",
+    inputSchema: {
+      type: "object",
+      properties: { acceptance: { type: "string" } },
+      required: ["acceptance"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "task_set_checklist",
     description:
       "Overwrite the task's checklist (markdown with `[ ]` / `[~]` / `[x]`).",
@@ -79,12 +90,57 @@ const TOOL_DEFINITIONS = [
   {
     name: "task_decide",
     description:
-      "AI-REVIEW decision. outcome='approve' transitions to PUBLISHING. outcome='decline' transitions back to IMPLEMENTING (or to PUBLISHING if max_ai_decline_cycles is reached). Valid only during AI-REVIEW.",
+      "AI-REVIEW decision. outcome='approve' transitions to VERIFYING (or straight to PUBLISHING when skip_verify is set). outcome='decline' transitions back to IMPLEMENTING (or forward, past the gate, if max_ai_decline_cycles is reached). Valid only during AI-REVIEW.",
     inputSchema: {
       type: "object",
       properties: {
         outcome: { type: "string", enum: ["approve", "decline"] },
         reason: { type: "string" },
+      },
+      required: ["outcome"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "task_verify",
+    description:
+      "VERIFYING decision. Report whether the change RUNS and meets its acceptance — do NOT fix code here. outcome='pass' transitions to PUBLISHING. outcome='fail' transitions back to IMPLEMENTING with your reason as the next instruction (or parks at NEEDS_REVIEW if max cycles is reached). Valid only during VERIFYING.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        outcome: { type: "string", enum: ["pass", "fail"] },
+        reason: { type: "string", description: "what you checked and the verdict" },
+        evidence: { type: "string", description: "commands run + key output proving the result" },
+      },
+      required: ["outcome", "reason"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "task_escalate",
+    description:
+      "Escalate a genuine judgment fork you can't resolve from context — an ambiguous requirement, two defensible architectures, a dependency direction you'd be guessing. Do NOT guess: call this instead of proceeding. State a tight question, the candidate options, and the evidence you have. The task parks for a higher-effort decision pass, then a human if needed. Valid in planning/implementing/ai_review/verify.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        question: { type: "string", description: "the specific fork, phrased as one decidable question" },
+        options: { type: "array", items: { type: "string" }, description: "the candidate answers you're torn between" },
+        evidence: { type: "string", description: "what you found that's relevant + why you can't decide" },
+      },
+      required: ["question"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "task_resolve",
+    description:
+      "Answer an escalated question (resolver pass only). outcome='decided' picks an option and sends the task back to its origin stage with your decision. outcome='defer' means it genuinely needs human/business context you can't derive — it stays for a human. Valid only on a NEEDS_REVIEW(question) task.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        outcome: { type: "string", enum: ["decided", "defer"] },
+        decision: { type: "string", description: "the chosen option (required for 'decided')" },
+        rationale: { type: "string", description: "why — grounded in the evidence/repo" },
       },
       required: ["outcome"],
       additionalProperties: false,
@@ -136,6 +192,11 @@ function callTool(
       return TOOL_REGISTRY.task_context(ctx);
     case "task_set_plan":
       return TOOL_REGISTRY.task_set_plan(ctx, args as { plan: string });
+    case "task_set_acceptance":
+      return TOOL_REGISTRY.task_set_acceptance(
+        ctx,
+        args as { acceptance: string },
+      );
     case "task_set_checklist":
       return TOOL_REGISTRY.task_set_checklist(
         ctx,
@@ -155,6 +216,21 @@ function callTool(
       return TOOL_REGISTRY.task_decide(
         ctx,
         args as { outcome: "approve" | "decline"; reason: string },
+      );
+    case "task_verify":
+      return TOOL_REGISTRY.task_verify(
+        ctx,
+        args as { outcome: "pass" | "fail"; reason: string; evidence?: string },
+      );
+    case "task_escalate":
+      return TOOL_REGISTRY.task_escalate(
+        ctx,
+        args as { question: string; options?: string[]; evidence?: string },
+      );
+    case "task_resolve":
+      return TOOL_REGISTRY.task_resolve(
+        ctx,
+        args as { outcome: "decided" | "defer"; decision?: string; rationale?: string },
       );
     case "task_seed_followup":
       return TOOL_REGISTRY.task_seed_followup(

@@ -73,6 +73,7 @@ export function snapshotBackoff(): Record<
     planning: state.get("planning"),
     implementing: state.get("implementing"),
     ai_review: state.get("ai_review"),
+    verify: state.get("verify"),
     publishing: state.get("publishing"),
   };
 }

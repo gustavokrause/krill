@@ -17,6 +17,7 @@ const STATUS_TO_STAGE: Record<TaskStatus, Stage | null> = {
   PLANNING: "planning",
   IMPLEMENTING: "implementing",
   "AI-REVIEW": "ai_review",
+  VERIFYING: "verify",
   PUBLISHING: "publishing",
   NEEDS_REVIEW: null,
   DONE: null,

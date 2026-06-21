@@ -13,6 +13,7 @@ import {
   Bot,
   Circle,
   Code2,
+  FlaskConical,
   GitMerge,
   Info,
   Pencil,
@@ -26,6 +27,7 @@ const STAGE_ICON: Record<keyof StageEnabled, LucideIcon> = {
   planning: Pencil,
   implementing: Code2,
   ai_review: Bot,
+  verify: FlaskConical,
   publishing: Upload,
 };
 
@@ -34,6 +36,7 @@ const STAGE_COLOR: Record<keyof StageEnabled, string> = {
   planning: "text-info",
   implementing: "text-info",
   ai_review: "text-warning",
+  verify: "text-warning",
   publishing: "text-info",
 };
 
@@ -42,6 +45,7 @@ const STAGE_MODEL: Record<keyof StageEnabled, string> = {
   planning: "Opus",
   implementing: "Sonnet",
   ai_review: "Opus",
+  verify: "Opus",
   publishing: "shell",
 };
 
@@ -50,6 +54,7 @@ const STAGE_LABEL: Record<keyof StageEnabled, string> = {
   planning: "PLANNING",
   implementing: "IMPLEMENTING",
   ai_review: "AI-REVIEW",
+  verify: "VERIFYING",
   publishing: "PUBLISHING",
 };
 
@@ -58,6 +63,7 @@ const STAGE_BADGE_CLASS: Record<keyof StageEnabled, string> = {
   planning: "bg-ai/10 text-ai",
   implementing: "bg-ai/10 text-ai",
   ai_review: "bg-ai/10 text-ai",
+  verify: "bg-ai/10 text-ai",
   publishing: "bg-slate-500/10 text-slate-600 dark:text-slate-400",
 };
 

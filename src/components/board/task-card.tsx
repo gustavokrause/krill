@@ -12,6 +12,7 @@ import {
   Code2,
   Eye,
   FastForward,
+  FlaskConical,
   GitBranch,
   Link2,
   Pause,
@@ -33,6 +34,7 @@ const STATUS_ICON: Record<TaskStatus, LucideIcon> = {
   PLANNING: Pencil,
   IMPLEMENTING: Code2,
   "AI-REVIEW": Bot,
+  VERIFYING: FlaskConical,
   PUBLISHING: Upload,
   NEEDS_REVIEW: Eye,
   DONE: CheckCircle2,
@@ -45,6 +47,7 @@ const STATUS_COLOR: Record<TaskStatus, string> = {
   PLANNING: "text-info",
   IMPLEMENTING: "text-info",
   "AI-REVIEW": "text-warning",
+  VERIFYING: "text-warning",
   PUBLISHING: "text-info",
   NEEDS_REVIEW: "text-warning",
   DONE: "text-success",
@@ -56,6 +59,8 @@ const KIND_LABEL: Record<ReviewKind, string> = {
   deliverable: "deliverable",
   conflict: "conflict",
   empty: "empty",
+  verify: "verify",
+  question: "question",
 };
 
 const KIND_COLOR: Record<ReviewKind, string> = {
@@ -63,6 +68,8 @@ const KIND_COLOR: Record<ReviewKind, string> = {
   deliverable: "bg-success/10 text-success border-success/40",
   conflict: "bg-danger/10 text-danger border-danger/40",
   empty: "bg-warning/10 text-warning border-warning/40",
+  verify: "bg-warning/10 text-warning border-warning/40",
+  question: "bg-danger/10 text-danger border-danger/40",
 };
 
 const TERMINAL = new Set<TaskStatus>(["DONE", "CANCELED"]);
@@ -73,6 +80,7 @@ const ACTIVE_CLAIMED = new Set<TaskStatus>([
   "PLANNING",
   "IMPLEMENTING",
   "AI-REVIEW",
+  "VERIFYING",
   "PUBLISHING",
 ]);
 

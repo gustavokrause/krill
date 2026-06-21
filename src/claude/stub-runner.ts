@@ -28,6 +28,12 @@ export class StubClaudeRunner implements ClaudeRunner {
           TOOL_REGISTRY.task_set_checklist(ctx, {
             checklist: `[ ] Investigate\n[ ] Implement\n[ ] Verify\n`,
           });
+          // Only author acceptance when none exists (an existing value wins).
+          if (!task.acceptance) {
+            TOOL_REGISTRY.task_set_acceptance(ctx, {
+              acceptance: `Deliverable for ${task.id} exists and addresses: ${task.description || task.name}.`,
+            });
+          }
         }
         const deliveryPath = project.has_repo
           ? `docs/tasks/${task.id}.md`
@@ -73,11 +79,33 @@ export class StubClaudeRunner implements ClaudeRunner {
         break;
       }
       case "ai_review": {
+        // The escalation resolver also runs under an ai_review token, but on a
+        // NEEDS_REVIEW(question) task — answer the escalation instead of deciding
+        // a review.
+        if (task.status === "NEEDS_REVIEW" && task.pending_review_kind === "question") {
+          const esc = task.escalation ? JSON.parse(task.escalation) : null;
+          TOOL_REGISTRY.task_resolve(ctx, {
+            outcome: "decided",
+            decision: esc?.options?.[0] ?? "stub decision",
+            rationale: "stub auto-resolve",
+          });
+          log.push("resolver: decided");
+          break;
+        }
         TOOL_REGISTRY.task_decide(ctx, {
           outcome: "approve",
           reason: "stub auto-approve",
         });
         log.push("ai_review: approved");
+        break;
+      }
+      case "verify": {
+        TOOL_REGISTRY.task_verify(ctx, {
+          outcome: "pass",
+          reason: "stub auto-verify",
+          evidence: "stub: no commands run",
+        });
+        log.push("verify: passed");
         break;
       }
       case "publishing": {
