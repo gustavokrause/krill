@@ -7,6 +7,7 @@ const STATUS_CLASS: Record<TaskStatus, string> = {
   PLANNING: "bg-info text-white",
   IMPLEMENTING: "bg-info text-white",
   "AI-REVIEW": "bg-warning text-white",
+  VERIFYING: "bg-warning text-white",
   PUBLISHING: "bg-info text-white",
   NEEDS_REVIEW: "bg-warning text-white",
   DONE: "bg-success text-white",

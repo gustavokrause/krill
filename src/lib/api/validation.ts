@@ -44,6 +44,10 @@ export const taskCreateSchema = z.object({
   skip_plan: z.boolean().default(false),
   skip_plan_review: z.boolean().default(false),
   skip_ai_review: z.boolean().default(false),
+  // Omitted = default by mode (non-dev skips verify, dev verifies); see the
+  // tasks POST route.
+  skip_verify: z.boolean().optional(),
+  acceptance: z.string().nullable().optional(),
   auto_publish: z.boolean().default(false),
   // Per-task publish-policy overrides (null = inherit project).
   create_pr: z.boolean().nullable().optional(),
@@ -64,6 +68,8 @@ export const taskPatchSchema = z.object({
   skip_plan: z.boolean().optional(),
   skip_plan_review: z.boolean().optional(),
   skip_ai_review: z.boolean().optional(),
+  skip_verify: z.boolean().optional(),
+  acceptance: z.string().nullable().optional(),
   auto_publish: z.boolean().optional(),
   create_pr: z.boolean().nullable().optional(),
   push_remote: z.boolean().nullable().optional(),
@@ -104,6 +110,7 @@ export const configPatchSchema = z.object({
       planning: z.boolean(),
       implementing: z.boolean(),
       ai_review: z.boolean(),
+      verify: z.boolean(),
       publishing: z.boolean(),
     })
     .partial()
@@ -114,6 +121,7 @@ export const configPatchSchema = z.object({
       planning: z.number().int().positive(),
       implementing: z.number().int().positive(),
       ai_review: z.number().int().positive(),
+      verify: z.number().int().positive(),
       publishing: z.number().int().positive(),
     })
     .partial()
@@ -123,6 +131,7 @@ export const configPatchSchema = z.object({
       planning: z.number().int().positive(),
       implementing: z.number().int().positive(),
       ai_review: z.number().int().positive(),
+      verify: z.number().int().positive(),
       publishing: z.number().int().positive(),
     })
     .partial()
@@ -132,6 +141,7 @@ export const configPatchSchema = z.object({
       planning: z.number().int().positive(),
       implementing: z.number().int().positive(),
       ai_review: z.number().int().positive(),
+      verify: z.number().int().positive(),
       publishing: z.number().int().positive(),
     })
     .partial()
@@ -144,6 +154,7 @@ export const configPatchSchema = z.object({
     .optional(),
   max_ai_decline_cycles: z.number().int().min(1).optional(),
   publishing_solve_conflicts: z.boolean().optional(),
+  escalation_auto_resolve: z.boolean().optional(),
 });
 
 export const taskListQuerySchema = z.object({

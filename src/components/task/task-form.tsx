@@ -61,6 +61,8 @@ export function TaskForm(props: Mode) {
   const [skipAiReview, setSkipAiReview] = useState(
     existing?.skip_ai_review ?? false,
   );
+  const [skipVerify, setSkipVerify] = useState(existing?.skip_verify ?? false);
+  const [acceptance, setAcceptance] = useState(existing?.acceptance ?? "");
   const [autoPublish, setAutoPublish] = useState(
     existing?.auto_publish ?? false,
   );
@@ -108,6 +110,8 @@ export function TaskForm(props: Mode) {
           skip_plan: skipPlan,
           skip_plan_review: skipPlanReview,
           skip_ai_review: autoPublish ? false : skipAiReview,
+          skip_verify: skipVerify,
+          acceptance: acceptance.trim() || null,
           auto_publish: autoPublish,
           create_pr: createPr,
           push_remote: pushRemote,
@@ -142,6 +146,8 @@ export function TaskForm(props: Mode) {
           skip_plan: skipPlan,
           skip_plan_review: skipPlanReview,
           skip_ai_review: autoPublish ? false : skipAiReview,
+          skip_verify: skipVerify,
+          acceptance: acceptance.trim() || null,
           auto_publish: autoPublish,
           create_pr: createPr,
           push_remote: pushRemote,
@@ -273,6 +279,19 @@ export function TaskForm(props: Mode) {
             rows={4}
           />
         </Field>
+
+        <Field
+          label="Acceptance (definition of done)"
+          helper="The bar VERIFYING runs the change against. PLANNING fills this in when it's left blank; set it here to pin a specific, checkable result. Leave empty to fall back to the plan + checklist."
+        >
+          <Textarea
+            value={acceptance}
+            onChange={(e) => setAcceptance(e.target.value)}
+            rows={3}
+            className="font-mono"
+            placeholder="A concrete result a verifier can check by running the change"
+          />
+        </Field>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-8 border-t border-border pt-4">
@@ -338,11 +357,17 @@ export function TaskForm(props: Mode) {
             helper={
               autoPublish
                 ? "Locked off while Auto-finish is on — AI review is the last guard when the human gate is skipped."
-                : "AI-REVIEW gate is bypassed; IMPLEMENTING jumps to PUBLISHING."
+                : "AI-REVIEW gate is bypassed; IMPLEMENTING goes to VERIFYING."
             }
             checked={autoPublish ? false : skipAiReview}
             onChange={setSkipAiReview}
             disabled={autoPublish}
+          />
+          <SkipRow
+            label="Skip verification"
+            helper="VERIFYING is bypassed — krill won't build/run the change to prove it meets its acceptance before PUBLISHING. Default ON for non-dev, OFF for dev."
+            checked={skipVerify}
+            onChange={setSkipVerify}
           />
           <SkipRow
             label="Auto-finish (⚠ dangerous)"

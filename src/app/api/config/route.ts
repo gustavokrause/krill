@@ -6,6 +6,7 @@ import {
   DEFAULT_CLAIM_TTL,
   DEFAULT_CRON_CADENCE,
   DEFAULT_MAX_AI_DECLINE_CYCLES,
+  DEFAULT_ESCALATION_AUTO_RESOLVE,
   DEFAULT_MAX_STAGE_DURATION,
   DEFAULT_PUBLISHING_SOLVE_CONFLICTS,
   DEFAULT_STAGE_ENABLED,
@@ -36,6 +37,7 @@ function readOrInit() {
         api_error_backoff: DEFAULT_API_ERROR_BACKOFF,
         max_ai_decline_cycles: DEFAULT_MAX_AI_DECLINE_CYCLES,
         publishing_solve_conflicts: DEFAULT_PUBLISHING_SOLVE_CONFLICTS,
+        escalation_auto_resolve: DEFAULT_ESCALATION_AUTO_RESOLVE,
       })
       .run();
     row = db.select().from(globalConfig).where(eq(globalConfig.id, 1)).get()!;
@@ -89,6 +91,8 @@ export async function PATCH(req: NextRequest) {
           body.max_ai_decline_cycles ?? current.max_ai_decline_cycles,
         publishing_solve_conflicts:
           body.publishing_solve_conflicts ?? current.publishing_solve_conflicts,
+        escalation_auto_resolve:
+          body.escalation_auto_resolve ?? current.escalation_auto_resolve,
       })
       .where(eq(globalConfig.id, 1))
       .run();

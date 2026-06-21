@@ -14,25 +14,35 @@ import {
   task_context,
   task_decide,
   task_seed_followup,
+  task_set_acceptance,
   task_set_affected_paths,
   task_set_checklist,
   task_set_plan,
+  task_verify,
+  task_escalate,
+  task_resolve,
 } from "./mcp-tools";
 import type { McpAuthContext } from "./mcp-auth";
 
 export type ToolName =
   | "task_context"
   | "task_set_plan"
+  | "task_set_acceptance"
   | "task_set_checklist"
   | "task_set_affected_paths"
   | "task_append_comment"
   | "task_decide"
+  | "task_verify"
+  | "task_escalate"
+  | "task_resolve"
   | "task_seed_followup";
 
 export const TOOL_REGISTRY = {
   task_context: (ctx: McpAuthContext) => task_context(ctx),
   task_set_plan: (ctx: McpAuthContext, args: { plan: string }) =>
     task_set_plan(ctx, args.plan),
+  task_set_acceptance: (ctx: McpAuthContext, args: { acceptance: string }) =>
+    task_set_acceptance(ctx, args.acceptance),
   task_set_checklist: (ctx: McpAuthContext, args: { checklist: string }) =>
     task_set_checklist(ctx, args.checklist),
   task_set_affected_paths: (
@@ -47,6 +57,18 @@ export const TOOL_REGISTRY = {
     ctx: McpAuthContext,
     args: { outcome: "approve" | "decline"; reason: string },
   ) => task_decide(ctx, args.outcome, args.reason),
+  task_verify: (
+    ctx: McpAuthContext,
+    args: { outcome: "pass" | "fail"; reason: string; evidence?: string },
+  ) => task_verify(ctx, args.outcome, args.reason, args.evidence),
+  task_escalate: (
+    ctx: McpAuthContext,
+    args: { question: string; options?: string[]; evidence?: string },
+  ) => task_escalate(ctx, args.question, args.options ?? [], args.evidence),
+  task_resolve: (
+    ctx: McpAuthContext,
+    args: { outcome: "decided" | "defer"; decision?: string; rationale?: string },
+  ) => task_resolve(ctx, args.outcome, args.decision ?? "", args.rationale),
   task_seed_followup: (
     ctx: McpAuthContext,
     args: { title: string; description?: string },

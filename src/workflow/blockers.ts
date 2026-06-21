@@ -87,10 +87,34 @@ export function addBlocker(b: {
   return row as Blocker;
 }
 
+/**
+ * Stop the line for a human: file a persistent warning AND pause the global
+ * todo-picker. For NEEDS_REVIEW landings that happen because the AI/pipeline
+ * tapped out (a deferred escalation, a verify-brake) — not for a happy-path
+ * deliverable awaiting approval. Resolving the blocker re-enables picking.
+ */
+export function pauseLineForHuman(opts: {
+  taskId: string;
+  stage?: string | null;
+  summary: string;
+  detail?: string;
+}): void {
+  addBlocker({
+    kind: "escalation",
+    task_id: opts.taskId,
+    stage: opts.stage ?? null,
+    summary: opts.summary,
+    detail: opts.detail ?? "",
+    dedupe: true,
+  });
+  setTodoPickerEnabled(false);
+}
+
 // Kinds that pause the global todo-picker when filed (follow-ups for scope
 // review; interactive auth walls so the picker doesn't pull more same-MCP tasks
-// into the same wall). Resolving any of them re-enables picking.
-const PICKER_PAUSING_KINDS = new Set(["followup", "mcp_auth", "cli_login"]);
+// into the same wall; escalations the pipeline couldn't resolve). Resolving any
+// of them re-enables picking.
+const PICKER_PAUSING_KINDS = new Set(["followup", "mcp_auth", "cli_login", "escalation"]);
 
 /**
  * Resolve a blocker. On "resolved": re-enable the todo-picker for any kind that

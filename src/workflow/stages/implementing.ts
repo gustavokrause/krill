@@ -120,7 +120,13 @@ export async function runImplementing(
         .run();
     }
 
-    const target = task.skip_ai_review ? "PUBLISHING" : "AI-REVIEW";
+    // 3-way: AI-REVIEW gates first; with it skipped, VERIFYING runs the change
+    // unless that's skipped too, then straight to PUBLISHING.
+    const target = task.skip_ai_review
+      ? task.skip_verify
+        ? "PUBLISHING"
+        : "VERIFYING"
+      : "AI-REVIEW";
     const moved = transitionStatus({
       taskId: task.id,
       from: "IMPLEMENTING",

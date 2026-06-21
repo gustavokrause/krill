@@ -16,7 +16,7 @@ import {
 import { resolveProjectPath } from "@/lib/api/util";
 import { broadcast } from "@/lib/sse";
 import { appendAiComment } from "@/workflow/comment";
-import { addBlocker, setTodoPickerEnabled } from "@/workflow/blockers";
+import { addBlocker, pauseLineForHuman, setTodoPickerEnabled } from "@/workflow/blockers";
 import { transitionStatus } from "@/workflow/transition";
 import { countAiAutoActions } from "@/workflow/loop-brake";
 import { now, type Stage } from "@/workflow/types";
@@ -25,6 +25,7 @@ import type { McpAuthContext } from "./mcp-auth";
 
 const STAGE_GATES: Record<string, Stage[]> = {
   task_set_plan: ["planning"],
+  task_set_acceptance: ["planning"],
   task_set_checklist: ["planning", "implementing"],
   task_set_affected_paths: ["planning", "implementing"],
   task_append_comment: [
@@ -32,15 +33,23 @@ const STAGE_GATES: Record<string, Stage[]> = {
     "planning",
     "implementing",
     "ai_review",
+    "verify",
     "publishing",
   ],
   task_decide: ["ai_review"],
-  task_seed_followup: ["planning", "implementing", "ai_review", "publishing"],
+  task_verify: ["verify"],
+  // Escalate is open to every stage that runs a Claude pass; the resolver issues
+  // its token under the ai_review (Opus) context, so task_resolve is allowed
+  // there (it additionally guards on the task being NEEDS_REVIEW(question)).
+  task_escalate: ["planning", "implementing", "ai_review", "verify"],
+  task_resolve: ["planning", "implementing", "ai_review", "verify"],
+  task_seed_followup: ["planning", "implementing", "ai_review", "verify", "publishing"],
   task_context: [
     "todo_picker",
     "planning",
     "implementing",
     "ai_review",
+    "verify",
     "publishing",
   ],
 };
@@ -136,6 +145,9 @@ export function task_context(ctx: McpAuthContext) {
       skip_plan: task.skip_plan,
       skip_plan_review: task.skip_plan_review,
       skip_ai_review: task.skip_ai_review,
+      skip_verify: task.skip_verify,
+      acceptance: task.acceptance,
+      escalation: task.escalation ? JSON.parse(task.escalation) : null,
     },
     project: {
       id: project.id,
@@ -159,6 +171,22 @@ export function task_set_plan(ctx: McpAuthContext, plan: string) {
   authorize(ctx, "task_set_plan");
   db.update(tasks)
     .set({ plan, updated_at: now() })
+    .where(eq(tasks.id, ctx.taskId))
+    .run();
+  emitTaskUpdated(ctx.taskId);
+  return { ok: true };
+}
+
+/**
+ * Set the task's acceptance (definition-of-done VERIFYING checks against).
+ * PLANNING calls this only when acceptance is still empty — a value set upstream
+ * at task creation or by a human is left untouched (the prompt enforces the
+ * "only if absent" rule; this tool just writes what it's given).
+ */
+export function task_set_acceptance(ctx: McpAuthContext, acceptance: string) {
+  authorize(ctx, "task_set_acceptance");
+  db.update(tasks)
+    .set({ acceptance, updated_at: now() })
     .where(eq(tasks.id, ctx.taskId))
     .run();
   emitTaskUpdated(ctx.taskId);
@@ -266,6 +294,12 @@ export function task_seed_followup(
 
 export type DecisionOutcome = "approve" | "decline";
 
+// What a cleared AI-REVIEW advances to: VERIFYING by default, or straight to
+// PUBLISHING when the task opted out of verification.
+function postAiReviewTarget(task: Task): "VERIFYING" | "PUBLISHING" {
+  return task.skip_verify ? "PUBLISHING" : "VERIFYING";
+}
+
 export function task_decide(
   ctx: McpAuthContext,
   outcome: DecisionOutcome,
@@ -280,15 +314,17 @@ export function task_decide(
     );
   }
 
+  const target = postAiReviewTarget(task);
+
   if (outcome === "approve") {
     task_append_comment(ctx, "AI-REVIEW", `approve: ${reason}`);
     const moved = transitionStatus({
       taskId: ctx.taskId,
       from: "AI-REVIEW",
-      to: "PUBLISHING",
+      to: target,
     });
     if (!moved) throw new McpAuthError("transition lost; retry");
-    return { ok: true, status: "PUBLISHING" };
+    return { ok: true, status: target };
   }
 
   // decline path — append reason and check brake
@@ -305,10 +341,10 @@ export function task_decide(
     const forced = transitionStatus({
       taskId: ctx.taskId,
       from: "AI-REVIEW",
-      to: "PUBLISHING",
+      to: target,
     });
     if (!forced) throw new McpAuthError("forced transition lost; retry");
-    return { ok: true, status: "PUBLISHING", forced: true };
+    return { ok: true, status: target, forced: true };
   }
 
   const moved = transitionStatus({
@@ -319,6 +355,211 @@ export function task_decide(
   if (!moved) throw new McpAuthError("decline transition lost; retry");
   return { ok: true, status: "IMPLEMENTING" };
 }
+
+export type VerifyOutcome = "pass" | "fail";
+
+/**
+ * VERIFYING decision. pass → PUBLISHING. fail → IMPLEMENTING (re-run with the
+ * failure as the next instruction). Reuses the AI decline brake: after
+ * max_ai_decline_cycles fails the run can't self-correct, so it parks at
+ * NEEDS_REVIEW(verify) for a human instead of looping.
+ */
+export function task_verify(
+  ctx: McpAuthContext,
+  outcome: VerifyOutcome,
+  reason: string,
+  evidence = "",
+) {
+  authorize(ctx, "task_verify");
+  const task = loadTask(ctx.taskId);
+
+  if (task.status !== "VERIFYING") {
+    throw new McpAuthError(
+      `task_verify requires status VERIFYING, got ${task.status}`,
+    );
+  }
+
+  const detail = evidence ? `${reason}\n\nEvidence:\n${evidence}` : reason;
+
+  if (outcome === "pass") {
+    task_append_comment(ctx, "VERIFYING", `verified: ${detail}`);
+    const moved = transitionStatus({
+      taskId: ctx.taskId,
+      from: "VERIFYING",
+      to: "PUBLISHING",
+    });
+    if (!moved) throw new McpAuthError("transition lost; retry");
+    return { ok: true, status: "PUBLISHING" };
+  }
+
+  // fail path — append reason and check the brake
+  task_append_comment(ctx, "VERIFYING", `verify failed: ${detail}`);
+
+  const max = getMaxAiDeclineCycles();
+  const count = countAiAutoActions(ctx.taskId);
+  if (count >= max) {
+    task_append_comment(
+      ctx,
+      "VERIFYING",
+      "max verify cycles reached — deferring to human",
+    );
+    const parked = transitionStatus({
+      taskId: ctx.taskId,
+      from: "VERIFYING",
+      to: "NEEDS_REVIEW",
+      pendingReviewKind: "verify",
+    });
+    if (!parked) throw new McpAuthError("forced transition lost; retry");
+    // The pipeline tapped out — stop feeding new work until a human clears it.
+    pauseLineForHuman({
+      taskId: ctx.taskId,
+      stage: "verify",
+      summary: `Verification couldn't pass ${ctx.taskId} after repeated tries`,
+      detail: detail,
+    });
+    return { ok: true, status: "NEEDS_REVIEW", forced: true };
+  }
+
+  const moved = transitionStatus({
+    taskId: ctx.taskId,
+    from: "VERIFYING",
+    to: "IMPLEMENTING",
+  });
+  if (!moved) throw new McpAuthError("fail transition lost; retry");
+  return { ok: true, status: "IMPLEMENTING" };
+}
+
+type Escalation = {
+  question: string;
+  options: string[];
+  evidence: string;
+  origin_stage: Stage;
+  resolver_tried: boolean;
+  decision?: string;
+  needs_human?: boolean;
+};
+
+/**
+ * Escalate a genuine judgment fork the stage can't resolve from context, instead
+ * of guessing. Records the question + options + evidence, remembers the origin
+ * stage to return to, and parks at NEEDS_REVIEW(question). The auto-resolver
+ * (higher-effort Opus pass) picks it up; if that also defers, it lands on a
+ * human. Picking does NOT pause here — the pipeline still has the resolver shot;
+ * the pause happens only if it reaches a human (task_resolve "defer").
+ */
+export function task_escalate(
+  ctx: McpAuthContext,
+  question: string,
+  options: string[],
+  evidence = "",
+) {
+  authorize(ctx, "task_escalate");
+  const q = question.trim();
+  if (!q) throw new McpAuthError("task_escalate requires a question");
+  const task = loadTask(ctx.taskId);
+
+  const escalation: Escalation = {
+    question: q,
+    options: Array.isArray(options) ? options.map((o) => String(o).trim()).filter(Boolean) : [],
+    evidence: (evidence ?? "").trim(),
+    origin_stage: ctx.stage,
+    resolver_tried: false,
+  };
+  db.update(tasks)
+    .set({ escalation: JSON.stringify(escalation), updated_at: now() })
+    .where(eq(tasks.id, ctx.taskId))
+    .run();
+
+  task_append_comment(
+    ctx,
+    STATUS_BY_STAGE[ctx.stage] ?? task.status,
+    `Escalated a judgment call: ${q}${escalation.options.length ? `\nOptions: ${escalation.options.join(" | ")}` : ""}`,
+  );
+
+  const moved = transitionStatus({
+    taskId: ctx.taskId,
+    from: task.status,
+    to: "NEEDS_REVIEW",
+    pendingReviewKind: "question",
+  });
+  if (!moved) throw new McpAuthError("escalate transition lost; retry");
+  return { ok: true, status: "NEEDS_REVIEW", kind: "question" };
+}
+
+export type ResolveOutcome = "decided" | "defer";
+
+/**
+ * Answer an escalation. Used by the auto-resolver (higher-effort Opus pass).
+ * "decided" → write the decision as an instruction tagged to the origin stage
+ * and send the task back there to continue. "defer" → genuinely needs a human:
+ * keep NEEDS_REVIEW(question), pause the line, file a persistent warning.
+ */
+export function task_resolve(
+  ctx: McpAuthContext,
+  outcome: ResolveOutcome,
+  decision: string,
+  rationale = "",
+) {
+  authorize(ctx, "task_resolve");
+  const task = loadTask(ctx.taskId);
+  if (task.status !== "NEEDS_REVIEW" || task.pending_review_kind !== "question") {
+    throw new McpAuthError(
+      `task_resolve requires NEEDS_REVIEW(question), got ${task.status}(${task.pending_review_kind})`,
+    );
+  }
+  const esc = (task.escalation ? JSON.parse(task.escalation) : null) as Escalation | null;
+  if (!esc) throw new McpAuthError("no escalation on task");
+
+  if (outcome === "decided") {
+    const d = decision.trim();
+    if (!d) throw new McpAuthError("task_resolve 'decided' requires a decision");
+    const next: Escalation = { ...esc, resolver_tried: true, decision: d };
+    db.update(tasks)
+      .set({ escalation: JSON.stringify(next), updated_at: now() })
+      .where(eq(tasks.id, ctx.taskId))
+      .run();
+    const originStatus = STATUS_BY_STAGE[esc.origin_stage] ?? "IMPLEMENTING";
+    task_append_comment(
+      ctx,
+      originStatus,
+      `Resolved (auto): ${d}${rationale ? `\n\nWhy: ${rationale}` : ""}`,
+    );
+    const moved = transitionStatus({
+      taskId: ctx.taskId,
+      from: "NEEDS_REVIEW",
+      to: originStatus,
+    });
+    if (!moved) throw new McpAuthError("resolve transition lost; retry");
+    return { ok: true, status: originStatus, resolved: true };
+  }
+
+  // defer — genuinely needs a human; stop the line.
+  const next: Escalation = { ...esc, resolver_tried: true, needs_human: true };
+  db.update(tasks)
+    .set({ escalation: JSON.stringify(next), updated_at: now() })
+    .where(eq(tasks.id, ctx.taskId))
+    .run();
+  task_append_comment(
+    ctx,
+    "NEEDS_REVIEW",
+    `Couldn't resolve automatically — needs your call.${rationale ? ` ${rationale}` : ""}\n\nQuestion: ${esc.question}${esc.options.length ? `\nOptions: ${esc.options.join(" | ")}` : ""}`,
+  );
+  pauseLineForHuman({
+    taskId: ctx.taskId,
+    stage: esc.origin_stage,
+    summary: `Needs your decision on ${ctx.taskId}: ${esc.question}`,
+    detail: esc.evidence,
+  });
+  return { ok: true, status: "NEEDS_REVIEW", deferred: true };
+}
+
+const STATUS_BY_STAGE: Partial<Record<Stage, Task["status"]>> = {
+  planning: "PLANNING",
+  implementing: "IMPLEMENTING",
+  ai_review: "AI-REVIEW",
+  verify: "VERIFYING",
+  publishing: "PUBLISHING",
+};
 
 function getMaxAiDeclineCycles(): number {
   const row = db

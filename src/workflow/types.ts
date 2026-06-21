@@ -11,6 +11,7 @@ export type Stage =
   | "planning"
   | "implementing"
   | "ai_review"
+  | "verify"
   | "publishing";
 
 export const STAGES: Stage[] = [
@@ -18,6 +19,7 @@ export const STAGES: Stage[] = [
   "planning",
   "implementing",
   "ai_review",
+  "verify",
   "publishing",
 ];
 
@@ -26,6 +28,7 @@ export const STAGE_TO_PICK_STATUS: Record<Stage, TaskStatus> = {
   planning: "PLANNING",
   implementing: "IMPLEMENTING",
   ai_review: "AI-REVIEW",
+  verify: "VERIFYING",
   publishing: "PUBLISHING",
 };
 

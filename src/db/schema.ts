@@ -16,6 +16,7 @@ export const TASK_STATUSES = [
   "PLANNING",
   "IMPLEMENTING",
   "AI-REVIEW",
+  "VERIFYING",
   "PUBLISHING",
   "NEEDS_REVIEW",
   "DONE",
@@ -26,7 +27,11 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 // "empty" — implementation produced no commits / nothing to ship. Unlike
 // "deliverable" there is no artifact to approve-and-merge; the human re-runs
 // IMPLEMENTING or cancels. Keeps a no-op task from masquerading as a deliverable.
-export const REVIEW_KINDS = ["plan", "deliverable", "conflict", "empty"] as const;
+// "verify" — VERIFYING failed past the decline brake; the run couldn't prove the
+// change meets its acceptance and a human must look.
+// "question" — a stage hit a judgment fork it couldn't resolve and the
+// higher-effort auto-resolver also deferred; a human must decide.
+export const REVIEW_KINDS = ["plan", "deliverable", "conflict", "empty", "verify", "question"] as const;
 export type ReviewKind = (typeof REVIEW_KINDS)[number];
 
 // Statuses where the worktree is preserved (cleanup gate must skip these).
@@ -34,6 +39,7 @@ export const WORKTREE_RETAINED_STATUSES: TaskStatus[] = [
   "PLANNING",
   "IMPLEMENTING",
   "AI-REVIEW",
+  "VERIFYING",
   "PUBLISHING",
   "NEEDS_REVIEW",
 ];
@@ -44,6 +50,7 @@ export const PARALLEL_SLOT_STATUSES: TaskStatus[] = [
   "PLANNING",
   "IMPLEMENTING",
   "AI-REVIEW",
+  "VERIFYING",
   "PUBLISHING",
 ];
 
@@ -53,6 +60,7 @@ export const CONFLICTS_BLOCKING_STATUSES: TaskStatus[] = [
   "PLANNING",
   "IMPLEMENTING",
   "AI-REVIEW",
+  "VERIFYING",
   "PUBLISHING",
   "NEEDS_REVIEW",
 ];
@@ -62,6 +70,7 @@ export const STUCK_WATCHED_STATUSES: TaskStatus[] = [
   "PLANNING",
   "IMPLEMENTING",
   "AI-REVIEW",
+  "VERIFYING",
   "PUBLISHING",
 ];
 
@@ -81,6 +90,7 @@ export type StageEnabled = {
   planning: boolean;
   implementing: boolean;
   ai_review: boolean;
+  verify: boolean;
   publishing: boolean;
 };
 
@@ -89,6 +99,7 @@ export type StageNumberMap = {
   planning: number;
   implementing: number;
   ai_review: number;
+  verify: number;
   publishing: number;
 };
 
@@ -130,6 +141,14 @@ export const globalConfig = sqliteTable(
     })
       .notNull()
       .default(false),
+    // When a stage escalates a judgment fork, run one higher-effort Opus pass to
+    // try to resolve it before parking for a human. Off = escalations go
+    // straight to NEEDS_REVIEW(question).
+    escalation_auto_resolve: integer("escalation_auto_resolve", {
+      mode: "boolean",
+    })
+      .notNull()
+      .default(true),
   },
   (t) => [check("global_config_singleton", sql`${t.id} = 1`)],
 );
@@ -217,6 +236,18 @@ export const tasks = sqliteTable(
     skip_ai_review: integer("skip_ai_review", { mode: "boolean" })
       .notNull()
       .default(false),
+    // Skip the VERIFYING stage; route straight to PUBLISHING. Default ON for
+    // non-dev tasks (nothing to run), OFF for dev (prove the change runs).
+    skip_verify: integer("skip_verify", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    // Definition-of-done VERIFYING checks against. Set at task creation, or
+    // written by PLANNING when left blank. NULL falls back to plan + checklist.
+    acceptance: text("acceptance"),
+    // Escalation record (JSON) when a stage hit a judgment fork it couldn't
+    // resolve: { question, options[], evidence, origin_stage, resolver_tried,
+    // decision?, needs_human? }. NULL = no open escalation.
+    escalation: text("escalation"),
     // Auto-finish (A2): skip the deliverable gate + auto-merge. Honored only
     // when the project also sets allow_auto_finish. Set by whale for
     // low-risk, non-self-edit tasks under the aggressive dial. AI-review stays on.
@@ -250,7 +281,7 @@ export const tasks = sqliteTable(
     index("tasks_project_status_idx").on(t.project_id, t.status),
     check(
       "tasks_status_enum",
-      sql`${t.status} IN ('BACKLOG','TODO','PLANNING','IMPLEMENTING','AI-REVIEW','PUBLISHING','NEEDS_REVIEW','DONE','CANCELED')`,
+      sql`${t.status} IN ('BACKLOG','TODO','PLANNING','IMPLEMENTING','AI-REVIEW','VERIFYING','PUBLISHING','NEEDS_REVIEW','DONE','CANCELED')`,
     ),
     check(
       "tasks_priority_enum",
@@ -259,7 +290,7 @@ export const tasks = sqliteTable(
     check("tasks_mode_enum", sql`${t.mode} IN ('dev','non-dev')`),
     check(
       "tasks_pending_review_kind_enum",
-      sql`${t.pending_review_kind} IS NULL OR ${t.pending_review_kind} IN ('plan','deliverable','conflict','empty')`,
+      sql`${t.pending_review_kind} IS NULL OR ${t.pending_review_kind} IN ('plan','deliverable','conflict','empty','verify','question')`,
     ),
     check(
       "tasks_pending_review_kind_requires_status",

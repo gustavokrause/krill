@@ -10,6 +10,7 @@ import {
   DEFAULT_API_ERROR_BACKOFF,
   DEFAULT_CLAIM_TTL,
   DEFAULT_CRON_CADENCE,
+  DEFAULT_ESCALATION_AUTO_RESOLVE,
   DEFAULT_MAX_AI_DECLINE_CYCLES,
   DEFAULT_MAX_STAGE_DURATION,
   DEFAULT_PUBLISHING_SOLVE_CONFLICTS,
@@ -39,6 +40,7 @@ export default async function SettingsPage() {
       api_error_backoff: DEFAULT_API_ERROR_BACKOFF satisfies BackoffConfig,
       max_ai_decline_cycles: DEFAULT_MAX_AI_DECLINE_CYCLES,
       publishing_solve_conflicts: DEFAULT_PUBLISHING_SOLVE_CONFLICTS,
+      escalation_auto_resolve: DEFAULT_ESCALATION_AUTO_RESOLVE,
     };
   }
   return <Settings initial={row} />;

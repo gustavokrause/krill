@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
         "planning",
         "implementing",
         "ai_review",
+        "verify",
         "publishing",
       ] as const) {
         const result = await tick(stage);

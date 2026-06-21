@@ -16,6 +16,7 @@ import { runImplementing } from "./stages/implementing";
 import { runPlanning } from "./stages/planning";
 import { runPublishing } from "./stages/publishing";
 import { runTodoPicker } from "./stages/todo-picker";
+import { runVerify } from "./stages/verify";
 import { STAGE_TO_PICK_STATUS, type Stage } from "./types";
 
 const HANDLERS: Record<Stage, (workerId: string) => Promise<string | null>> = {
@@ -23,6 +24,7 @@ const HANDLERS: Record<Stage, (workerId: string) => Promise<string | null>> = {
   planning: runPlanning,
   implementing: runImplementing,
   ai_review: runAiReview,
+  verify: runVerify,
   publishing: runPublishing,
 };
 

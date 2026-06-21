@@ -75,6 +75,10 @@ export async function POST(req: NextRequest) {
             skip_plan: body.skip_plan,
             skip_plan_review: body.skip_plan_review,
             skip_ai_review: body.skip_ai_review,
+            // Default verify ON for dev (prove it runs), OFF for non-dev
+            // (nothing to run) when the caller doesn't specify.
+            skip_verify: body.skip_verify ?? body.mode !== "dev",
+            acceptance: body.acceptance ?? null,
             auto_publish: body.auto_publish,
             create_pr: body.create_pr ?? null,
             push_remote: body.push_remote ?? null,

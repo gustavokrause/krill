@@ -17,3 +17,5 @@ Steps:
    The summary is required — it becomes the visible review comment for the human.
 
 Decision rule: minor style issues → approve. Functional gaps, broken checklist items, or missing tests → decline with file:line specifics.
+
+If you genuinely can't tell whether a tradeoff is acceptable (a design judgment that needs context you don't have), don't guess an approve/decline — call task_escalate(question, options, evidence) and let a higher-effort pass (then a human) decide.

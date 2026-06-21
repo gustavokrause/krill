@@ -17,6 +17,12 @@ migration, a separate strategy item), do NOT do it here — call
 task_seed_followup({title, description}) once per item so the strategy layer
 can plan it. Keep this task's diff tightly scoped.
 
+If you hit a genuine fork you can't resolve from context — an ambiguous
+requirement, two defensible designs, a dependency direction you'd be guessing —
+do NOT guess. Call task_escalate(question, options, evidence) instead of
+proceeding; a higher-effort pass (then a human) decides and the task returns to
+you with the answer.
+
 When done, call task_append_comment(stage="IMPLEMENTING", text=<short
 summary>) before exiting.
 
