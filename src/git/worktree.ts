@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, symlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import simpleGit, { type SimpleGit } from "simple-git";
 import { resolveProjectPath } from "@/lib/api/util";
@@ -31,7 +31,12 @@ export async function createWorktree(opts: WorktreeOpts): Promise<string> {
   const repo = resolveProjectPath(opts.projectFolder);
   const wt = worktreePathFor(opts.worktreesRoot, opts.projectSlug, opts.taskId);
 
-  if (existsSync(wt)) return wt;
+  // Idempotent: a re-used worktree still gets deps provisioned (back-fills
+  // worktrees created before provisioning existed).
+  if (existsSync(wt)) {
+    provisionWorktreeDeps(repo, wt);
+    return wt;
+  }
   mkdirSync(dirname(wt), { recursive: true });
 
   const git: SimpleGit = simpleGit(repo);
@@ -63,7 +68,45 @@ export async function createWorktree(opts: WorktreeOpts): Promise<string> {
   const res = await execCmd("git", args, { cwd: repo });
   throwIfFailed(res, "git worktree add");
 
+  provisionWorktreeDeps(repo, wt);
   return wt;
+}
+
+/**
+ * Make a worktree runnable by the verify stage.
+ *
+ * OPTION 1 (current, cheap): symlink the project's existing `node_modules` into
+ * the worktree instead of installing. Instant, ~zero extra disk. A git worktree
+ * shares .git but NOT a working tree, so it has no deps of its own — without
+ * this, verify's `npm run dev` / build can't resolve a single import.
+ *
+ * KNOWN LIMITATION: Turbopack refuses a `node_modules` that is a symlink
+ * pointing outside the project root. So the verify run must boot the app via the
+ * webpack dev server or `next build && next start` — NOT `next dev --turbopack`.
+ * The verify prompt (prompts/verify-dev.md) tells the agent this.
+ *
+ * ── OPTION 3 (escalation seam) ──────────────────────────────────────────────
+ * If symlinking proves insufficient — Turbopack-only projects, native/
+ * postinstall deps, or per-task dependency drift — swap the symlink below for a
+ * real per-worktree install (`npm ci` / `pnpm install`). That is fully isolated
+ * and correct but slow (minutes) and disk-heavy per task, so we only pay it when
+ * Option 1 starts failing often (currently rare). Keep this function the single
+ * provisioning seam so that swap stays one place; consider making it a per-
+ * project choice (a `worktree_setup` config) rather than a global default.
+ * ────────────────────────────────────────────────────────────────────────────
+ */
+export function provisionWorktreeDeps(repoPath: string, worktreePath: string): void {
+  const src = join(repoPath, "node_modules");
+  const dest = join(worktreePath, "node_modules");
+  // Node projects only; never clobber an existing dir/symlink.
+  if (!existsSync(src) || existsSync(dest)) return;
+  try {
+    symlinkSync(src, dest, "dir");
+  } catch {
+    // Non-fatal: the worktree is still usable for non-running stages. If verify
+    // can't boot the app it reports a fail, which the verify loop-brake bounds —
+    // it no longer hangs forever.
+  }
 }
 
 /**
