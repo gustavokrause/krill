@@ -16,6 +16,10 @@ Steps:
    - When the acceptance describes runtime behavior, BOOT the app and exercise
      the exact golden path it names (hit the endpoint, run the CLI, drive the
      flow) and observe the real result — don't assume from the diff.
+     NOTE: this worktree's `node_modules` is a symlink to the project root. If
+     the dev server uses Turbopack (`next dev --turbopack`), start it WITHOUT
+     Turbopack — plain webpack `next dev`, or `next build && next start` —
+     because Turbopack rejects an out-of-root symlinked `node_modules`.
 3. Compare what you observed against each acceptance item. Be concrete.
 4. Capture evidence: the commands you ran and the key output (build result, test
    summary, the observed behavior vs expected).
