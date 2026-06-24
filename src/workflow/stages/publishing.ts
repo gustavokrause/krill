@@ -30,7 +30,7 @@ import { appendAiComment } from "../comment";
 import { resolvePublishPolicy } from "../publish-policy";
 import { finishMerge, autoFinishEligible } from "../finish";
 import { tripAutoFinishBreaker } from "../breaker";
-import { countAiAutoActions, MANUAL_AI_COMMENT_PREFIX } from "../loop-brake";
+import { countAiAutoActions, getMaxAiDeclineCycles, MANUAL_AI_COMMENT_PREFIX } from "../loop-brake";
 import { releaseClaim, transitionStatus } from "../transition";
 import { now } from "../types";
 import {
@@ -60,15 +60,6 @@ function countPublishFailures(taskId: string): number {
     .where(eq(comments.task_id, taskId))
     .all()
     .filter((c) => c.text.startsWith(PUBLISH_FAILURE_PREFIX)).length;
-}
-
-function getMaxAiDeclineCycles(): number {
-  const row = db
-    .select({ n: globalConfig.max_ai_decline_cycles })
-    .from(globalConfig)
-    .where(eq(globalConfig.id, 1))
-    .get();
-  return row?.n ?? 3;
 }
 
 function isSolveConflictsEnabled(): boolean {
