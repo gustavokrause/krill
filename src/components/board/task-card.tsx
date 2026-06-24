@@ -114,6 +114,8 @@ export function TaskCard({
   onRecover,
   isDraggable,
   dependencies = [],
+  selected = false,
+  onShiftSelect,
 }: {
   task: Task;
   project?: Project;
@@ -122,6 +124,8 @@ export function TaskCard({
   onRecover?: (id: string) => void;
   isDraggable?: boolean;
   dependencies?: Array<{ id: string; status: TaskStatus; name: string }>;
+  selected?: boolean;
+  onShiftSelect?: (id: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
@@ -139,6 +143,11 @@ export function TaskCard({
   function handleClick(e: React.MouseEvent<HTMLAnchorElement>) {
     const pd = pointerDownRef.current;
     pointerDownRef.current = null;
+    if (e.shiftKey && isDraggable) {
+      e.preventDefault();
+      onShiftSelect?.(task.id);
+      return;
+    }
     if (pd) {
       const dx = e.clientX - pd.x;
       const dy = e.clientY - pd.y;
@@ -196,7 +205,7 @@ export function TaskCard({
       {...listeners}
       onPointerDown={handlePointerDown}
       onClick={handleClick}
-      className={`block border rounded-sm px-3 py-2 hover:border-border-strong ${
+      className={`block border rounded-sm px-3 py-2 hover:border-border-strong ${selected ? "ring-1 ring-primary" : ""} ${
         orphaned
           ? "border-danger/50 bg-danger/5"
           : armed
@@ -384,19 +393,33 @@ export function TaskCard({
   );
 }
 
-export function TaskCardPreview({ task }: { task: Task }) {
+export function TaskCardPreview({ task, count }: { task: Task; count?: number }) {
   const Icon = STATUS_ICON[task.status];
   const iconColor = STATUS_COLOR[task.status];
+  const showBatch = count != null && count > 1;
   return (
-    <div className="block border border-border bg-surface-2 rounded-sm px-3 py-2 shadow-lg">
-      <div className="flex items-start gap-2">
-        <Icon
-          className={`h-4 w-4 mt-0.5 shrink-0 ${iconColor}`}
-          aria-label={task.status}
+    <div className="relative">
+      {showBatch ? (
+        <div
+          aria-hidden
+          className="absolute inset-0 translate-x-1.5 translate-y-1.5 border border-border bg-surface-2 rounded-sm"
         />
-        <p className="text-sm text-text leading-snug font-medium line-clamp-2">
-          {task.name}
-        </p>
+      ) : null}
+      <div className="relative block border border-border bg-surface-2 rounded-sm px-3 py-2 shadow-lg">
+        <div className="flex items-start gap-2">
+          <Icon
+            className={`h-4 w-4 mt-0.5 shrink-0 ${iconColor}`}
+            aria-label={task.status}
+          />
+          <p className="text-sm text-text leading-snug font-medium line-clamp-2">
+            {task.name}
+          </p>
+          {showBatch ? (
+            <span className="ml-auto shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-mono font-medium bg-primary text-white">
+              +{count - 1}
+            </span>
+          ) : null}
+        </div>
       </div>
     </div>
   );
