@@ -47,3 +47,6 @@ data/
 # OS
 .DS_Store
 Thumbs.db
+
+# playwright MCP scratch (page snapshots + console logs — leaks board/project data)
+.playwright-mcp/
