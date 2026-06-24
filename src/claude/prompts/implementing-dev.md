@@ -26,5 +26,11 @@ you with the answer.
 When done, call task_append_comment(stage="IMPLEMENTING", text=<short
 summary>) before exiting.
 
+The harness runs `git add -A` and commits EVERYTHING in the worktree after you
+exit. So keep any scratch out of the tracked tree: write screenshots, Playwright
+output, logs, and throwaway files under `.playwright-mcp/` (gitignored) — NEVER
+the repo root or other tracked paths. Only your actual code change should land in
+the commit; a stray proof PNG at the repo root ships in the PR and leaks data.
+
 Apply SOLID, DRY, KISS, YAGNI. The harness commits + pushes after you exit.
 Do not call task_decide.
