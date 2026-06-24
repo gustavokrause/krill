@@ -16,7 +16,7 @@ export default async function EditProjectModal({ params }: Ctx) {
 
   return (
     <FormModal title={`${project.slug} — ${project.name}`}>
-      <ProjectForm kind="edit" project={project} />
+      <ProjectForm kind="edit" project={project} presentation="modal" />
     </FormModal>
   );
 }
