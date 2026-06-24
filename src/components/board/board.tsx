@@ -93,8 +93,9 @@ const EXPANDABLE_TITLES = new Set(["Intake", "In progress"]);
 // Terminal columns (DONE/CANCELED) accumulate forever — a time window keeps them
 // lean. Active columns self-drain, so the window NEVER touches them.
 const TERMINAL_STATUSES = new Set<TaskStatus>(["DONE", "CANCELED"]);
-type TermWindow = "week" | "lastweek" | "month" | "all";
+type TermWindow = "today" | "week" | "lastweek" | "month" | "all";
 const TERM_WINDOWS: { value: TermWindow; label: string }[] = [
+  { value: "today", label: "Today" },
   { value: "week", label: "This week" },
   { value: "lastweek", label: "Last week" },
   { value: "month", label: "This month" },
@@ -106,6 +107,7 @@ function termRange(w: TermWindow): { start: number; end: number } {
   if (w === "all") return { start: -Infinity, end: Infinity };
   const d = new Date();
   d.setHours(0, 0, 0, 0);
+  if (w === "today") return { start: d.getTime() / 1000, end: Infinity };
   const mondayOffset = (d.getDay() + 6) % 7; // Mon=0 … Sun=6
   const startOfWeek = new Date(d);
   startOfWeek.setDate(d.getDate() - mondayOffset);
