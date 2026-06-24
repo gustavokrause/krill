@@ -24,7 +24,7 @@ export default async function EditTaskPage({ params }: Ctx) {
         ← {task.id}
       </Link>
       <h1 className="text-xl font-bold mt-2 mb-4">Edit task</h1>
-      <TaskForm kind="edit" task={task} projects={all} />
+      <TaskForm kind="edit" task={task} projects={all} presentation="page" />
     </main>
   );
 }

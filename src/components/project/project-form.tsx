@@ -21,8 +21,8 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DialogBody, DialogFooter } from "@/components/ui/dialog";
 
 type Mode =
-  | { kind: "create" }
-  | { kind: "edit"; project: Project };
+  | { kind: "create"; presentation: "modal" | "page" }
+  | { kind: "edit"; project: Project; presentation: "modal" | "page" };
 
 export function ProjectForm(props: Mode) {
   const router = useRouter();
@@ -82,7 +82,11 @@ export function ProjectForm(props: Mode) {
           title: `Created ${p.slug}`,
           description: p.has_repo ? "repo detected" : "no repo",
         });
-        router.back();
+        if (props.presentation === "modal") {
+          router.back();
+        } else {
+          router.push("/projects");
+        }
         router.refresh();
       } else {
         const body: Record<string, unknown> = {
@@ -100,10 +104,11 @@ export function ProjectForm(props: Mode) {
         };
         await api.patchProject(props.project.id, body);
         toast.push({ variant: "success", title: "Project updated" });
-        // push lands on /projects; refresh re-resolves the @modal slot against
-        // the new URL (→ default.tsx) so the intercepted modal actually closes,
-        // and refetches the now-stale server list.
-        router.push("/projects");
+        if (props.presentation === "modal") {
+          router.back();
+        } else {
+          router.push("/projects");
+        }
         router.refresh();
       }
     } catch (err) {
@@ -408,7 +413,13 @@ export function ProjectForm(props: Mode) {
             type="button"
             variant="neutral"
             disabled={busy}
-            onClick={() => router.back()}
+            onClick={() => {
+              if (props.presentation === "modal") {
+                router.back();
+              } else {
+                router.push("/projects");
+              }
+            }}
           >
             Cancel
           </Button>

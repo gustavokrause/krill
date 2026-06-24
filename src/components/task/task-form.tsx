@@ -19,8 +19,8 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DialogBody, DialogFooter } from "@/components/ui/dialog";
 
 type Mode =
-  | { kind: "create"; projects: Project[]; defaultProjectId?: string }
-  | { kind: "edit"; task: Task; projects: Project[] };
+  | { kind: "create"; projects: Project[]; defaultProjectId?: string; presentation: "modal" | "page" }
+  | { kind: "edit"; task: Task; projects: Project[]; presentation: "modal" | "page" };
 
 export function TaskForm(props: Mode) {
   const router = useRouter();
@@ -119,20 +119,16 @@ export function TaskForm(props: Mode) {
           draft_pr: draftPr,
         });
         toast.push({ variant: "success", title: `Created ${task.id}` });
-        // Land the board on the project the task was created under (the picker
-        // may differ from where the modal was opened) and persist it. Use
-        // router.push (not back/replace): push to `/?project=slug` resolves a
-        // fresh tree so the intercepted @modal slot falls back to default.tsx
-        // and the modal closes — a replace to the same pathname leaves it
-        // mounted, and back would revert to the old filter the modal opened on.
         const slug = props.projects.find((p) => p.id === projectId)?.slug;
         if (slug) {
           try {
             window.localStorage.setItem("board.projectFilter", slug);
           } catch {}
-          router.push(`/?project=${slug}`);
+        }
+        if (props.presentation === "modal") {
+          router.back();
         } else {
-          router.push("/");
+          router.push(slug ? `/?project=${slug}` : "/");
         }
         router.refresh();
       } else {
@@ -155,7 +151,12 @@ export function TaskForm(props: Mode) {
           draft_pr: draftPr,
         });
         toast.push({ variant: "success", title: "Task updated" });
-        router.back();
+        if (props.presentation === "modal") {
+          router.back();
+        } else {
+          const slug = props.projects.find((p) => p.id === props.task.project_id)?.slug;
+          router.push(slug ? `/?project=${slug}` : "/");
+        }
         router.refresh();
       }
     } catch (err) {
@@ -176,6 +177,7 @@ export function TaskForm(props: Mode) {
       await api.deleteTask(props.task.id);
       toast.push({ variant: "warning", title: `Deleted ${props.task.id}` });
       router.push("/");
+      router.refresh();
     } catch (err) {
       toast.push({
         variant: "danger",
@@ -436,7 +438,17 @@ export function TaskForm(props: Mode) {
             type="button"
             variant="neutral"
             disabled={busy}
-            onClick={() => router.back()}
+            onClick={() => {
+              if (props.presentation === "modal") {
+                router.back();
+              } else {
+                const slug =
+                  props.kind === "edit"
+                    ? props.projects.find((p) => p.id === props.task.project_id)?.slug
+                    : props.projects.find((p) => p.id === projectId)?.slug;
+                router.push(slug ? `/?project=${slug}` : "/");
+              }
+            }}
           >
             Cancel
           </Button>

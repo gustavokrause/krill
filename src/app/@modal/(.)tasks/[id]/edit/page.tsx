@@ -17,7 +17,7 @@ export default async function EditTaskModal({ params }: Ctx) {
 
   return (
     <FormModal title={`Edit ${task.id}`}>
-      <TaskForm kind="edit" task={task} projects={all} />
+      <TaskForm kind="edit" task={task} projects={all} presentation="modal" />
     </FormModal>
   );
 }

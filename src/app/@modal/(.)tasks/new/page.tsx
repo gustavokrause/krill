@@ -37,7 +37,7 @@ export default async function NewTaskModal({
   }
   return (
     <FormModal title="New task">
-      <TaskForm kind="create" projects={all} defaultProjectId={defaultProjectId} />
+      <TaskForm kind="create" projects={all} defaultProjectId={defaultProjectId} presentation="modal" />
     </FormModal>
   );
 }

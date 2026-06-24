@@ -44,7 +44,7 @@ export default async function NewTaskPage({
         ← Board
       </Link>
       <h1 className="text-xl font-bold mt-2 mb-4">New task</h1>
-      <TaskForm kind="create" projects={all} defaultProjectId={defaultProjectId} />
+      <TaskForm kind="create" projects={all} defaultProjectId={defaultProjectId} presentation="page" />
     </main>
   );
 }

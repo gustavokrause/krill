@@ -13,7 +13,7 @@ export default function NewProjectPage() {
         </Link>
         <h1 className="text-xl font-bold mt-2">New project</h1>
       </div>
-      <ProjectForm kind="create" />
+      <ProjectForm kind="create" presentation="page" />
     </main>
   );
 }

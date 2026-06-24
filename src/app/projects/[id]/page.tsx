@@ -27,7 +27,7 @@ export default async function ProjectEditPage({ params }: Ctx) {
           {project.slug} — {project.name}
         </h1>
       </div>
-      <ProjectForm kind="edit" project={project} />
+      <ProjectForm kind="edit" project={project} presentation="page" />
     </main>
   );
 }
