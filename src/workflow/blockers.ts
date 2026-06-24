@@ -132,3 +132,15 @@ export function resolveBlocker(id: string, status: "resolved" | "dismissed" = "r
   }
   return getBlocker(id);
 }
+
+/**
+ * Resolve every open blocker for a task. Called when a human moves a task out of
+ * NEEDS_REVIEW (retry/redo/override/cancel) so the line doesn't stay paused
+ * behind a stale brake blocker (verify-brake, deferred escalation) the human has
+ * just acted on. No-op for happy-path reviews that filed no blocker.
+ */
+export function resolveTaskBlockers(taskId: string): void {
+  for (const b of listBlockers("open")) {
+    if (b.task_id === taskId) resolveBlocker(b.id, "resolved");
+  }
+}

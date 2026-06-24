@@ -12,6 +12,7 @@ import {
   tables,
 } from "../helpers/setup";
 import { task_decide, task_set_acceptance, task_verify } from "@/claude/mcp-tools";
+import { listBlockers, resolveTaskBlockers } from "@/workflow/blockers";
 import { StubClaudeRunner } from "@/claude/stub-runner";
 import type { ClaudeRunner } from "@/claude/runner";
 import { setRunner } from "@/claude";
@@ -55,6 +56,11 @@ function aiReviewCtx(taskId: string) {
 
 const row = (id: string) =>
   db.select().from(tables.tasks).where(eq(tables.tasks.id, id)).get()!;
+
+const pickerEnabled = () => {
+  const cfg = db.select().from(tables.globalConfig).where(eq(tables.globalConfig.id, 1)).get();
+  return (cfg?.stage_enabled as { todo_picker?: boolean })?.todo_picker ?? false;
+};
 
 test("AI-REVIEW approve routes to VERIFYING when not skipped", () => {
   const p = createProject({ slug: "VF" });
@@ -244,6 +250,22 @@ test("runVerify parks at NEEDS_REVIEW(verify) after max no-verdict runs", async 
     assert.equal(r.status, "NEEDS_REVIEW", "3rd incomplete run parks");
     assert.equal(r.pending_review_kind, "verify");
     assert.equal(r.claimed_by, null, "claim cleared on park");
+
+    // The brake paused the line + filed a blocker. A human retrying must clear
+    // both, else the line stays paused behind a stale row.
+    assert.equal(pickerEnabled(), false, "brake paused the todo-picker");
+    assert.ok(
+      listBlockers("open").some((b) => b.task_id === t.id),
+      "brake filed an open blocker",
+    );
+
+    resolveTaskBlockers(t.id);
+    assert.equal(pickerEnabled(), true, "retry re-enables the todo-picker");
+    assert.equal(
+      listBlockers("open").filter((b) => b.task_id === t.id).length,
+      0,
+      "retry clears the task's blockers",
+    );
   } finally {
     setRunner(new StubClaudeRunner());
   }

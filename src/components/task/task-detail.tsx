@@ -78,6 +78,9 @@ function labelFor(
   if (from === "NEEDS_REVIEW" && kind === "conflict" && to === "PUBLISHING") {
     return "Retry PUBLISHING";
   }
+  if (from === "NEEDS_REVIEW" && kind === "verify" && to === "VERIFYING") {
+    return "Retry VERIFYING";
+  }
   // Empty task → DONE isn't an "Approve" of a deliverable; it's accepting a
   // no-op as complete.
   if (from === "NEEDS_REVIEW" && kind === "empty" && to === "DONE") {
@@ -176,9 +179,11 @@ function nextStatusesFor(task: Task): TaskStatus[] {
         case "conflict":
           return ["PUBLISHING", "IMPLEMENTING", "BACKLOG", "CANCELED"];
         case "verify":
-          // Verification couldn't prove the change. Send back to redo, or
-          // override the gate straight to PUBLISHING if the human is satisfied.
-          return ["IMPLEMENTING", "PUBLISHING", "BACKLOG", "CANCELED"];
+          // Verification couldn't prove the change. Retry VERIFYING (e.g. after
+          // a transient/infra failure — nothing wrong with the code), send back
+          // to IMPLEMENTING to fix code, or override the gate straight to
+          // PUBLISHING if the human is satisfied.
+          return ["VERIFYING", "IMPLEMENTING", "PUBLISHING", "BACKLOG", "CANCELED"];
         case "question": {
           // Escalated judgment call the resolver deferred. Answer it (comment
           // your decision), then send the task back to the stage it came from.
@@ -377,7 +382,7 @@ export function TaskDetail({
         kind,
         title: "Verification failed",
         message:
-          "VERIFYING couldn't prove the change meets its acceptance after repeated tries. Send back to IMPLEMENTING to redo, or override to PUBLISHING if you're satisfied.",
+          "VERIFYING couldn't prove the change meets its acceptance after repeated tries. Retry VERIFYING if it failed for a transient/infra reason (the code is fine), send back to IMPLEMENTING to fix the code, or override to PUBLISHING if you're satisfied.",
         showSolveWithSonnet: false,
       };
     }

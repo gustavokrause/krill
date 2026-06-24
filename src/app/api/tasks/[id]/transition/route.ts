@@ -13,6 +13,7 @@ import { taskTransitionSchema } from "@/lib/api/validation";
 import { broadcast } from "@/lib/sse";
 import { finishMerge } from "@/workflow/finish";
 import { cancelDependentsCascade, tripAutoFinishBreaker } from "@/workflow/breaker";
+import { resolveTaskBlockers } from "@/workflow/blockers";
 import { applyTransitionSideEffects } from "@/workflow/cleanup";
 import { transitionStatus } from "@/workflow/transition";
 import { now } from "@/workflow/types";
@@ -73,6 +74,13 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     });
     if (!moved) {
       invalidState("status changed concurrently; retry");
+    }
+
+    // Leaving NEEDS_REVIEW by a human action clears any brake blocker that
+    // parked it (verify-brake, deferred escalation) and re-enables the picker —
+    // otherwise a Retry/redo silently leaves the line paused behind a stale row.
+    if (from === "NEEDS_REVIEW") {
+      resolveTaskBlockers(id);
     }
 
     if (body.comment) {
