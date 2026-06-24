@@ -13,6 +13,7 @@ import {
 } from "../helpers/setup";
 import { task_decide, task_set_acceptance, task_verify } from "@/claude/mcp-tools";
 import { StubClaudeRunner } from "@/claude/stub-runner";
+import type { ClaudeRunner } from "@/claude/runner";
 import { setRunner } from "@/claude";
 import { runImplementing } from "@/workflow/stages/implementing";
 import { runPlanning } from "@/workflow/stages/planning";
@@ -208,4 +209,42 @@ test("runVerify drives VERIFYING → PUBLISHING via the stub", async () => {
   const out = await runVerify("worker-verify");
   assert.equal(out, t.id);
   assert.equal(row(t.id).status, "PUBLISHING");
+});
+
+// A runner that succeeds but never calls task_verify — the "can't run the
+// change" case. The task stays VERIFYING, which used to retry forever.
+class NoVerdictRunner implements ClaudeRunner {
+  async run() {
+    return { stdout: "", stderr: "", exitCode: 0 };
+  }
+}
+
+test("runVerify parks at NEEDS_REVIEW(verify) after max no-verdict runs", async () => {
+  setRunner(new NoVerdictRunner());
+  try {
+    const project = createProject({ slug: "VF", has_repo: false, folder_path: sandbox });
+    const t = createTask(project, {
+      name: "won't run",
+      status: "VERIFYING",
+      mode: "non-dev",
+      skip_verify: false,
+      workspace_path: sandbox,
+    });
+
+    // Default max_ai_decline_cycles=3 → first two runs retry, third parks.
+    await runVerify("worker-v1");
+    assert.equal(row(t.id).status, "VERIFYING", "1st incomplete run retries");
+    assert.equal(row(t.id).claimed_by, null, "claim released for retry");
+
+    await runVerify("worker-v2");
+    assert.equal(row(t.id).status, "VERIFYING", "2nd incomplete run retries");
+
+    await runVerify("worker-v3");
+    const r = row(t.id);
+    assert.equal(r.status, "NEEDS_REVIEW", "3rd incomplete run parks");
+    assert.equal(r.pending_review_kind, "verify");
+    assert.equal(r.claimed_by, null, "claim cleared on park");
+  } finally {
+    setRunner(new StubClaudeRunner());
+  }
 });

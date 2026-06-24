@@ -6,7 +6,6 @@ import {
   CONFLICTS_BLOCKING_STATUSES,
   comments,
   followups,
-  globalConfig,
   projects,
   tasks,
   type Comment,
@@ -18,7 +17,7 @@ import { broadcast } from "@/lib/sse";
 import { appendAiComment } from "@/workflow/comment";
 import { addBlocker, pauseLineForHuman, setTodoPickerEnabled } from "@/workflow/blockers";
 import { transitionStatus } from "@/workflow/transition";
-import { countAiAutoActions } from "@/workflow/loop-brake";
+import { countAiAutoActions, getMaxAiDeclineCycles } from "@/workflow/loop-brake";
 import { now, type Stage } from "@/workflow/types";
 import { McpAuthError } from "./errors";
 import type { McpAuthContext } from "./mcp-auth";
@@ -561,11 +560,3 @@ const STATUS_BY_STAGE: Partial<Record<Stage, Task["status"]>> = {
   publishing: "PUBLISHING",
 };
 
-function getMaxAiDeclineCycles(): number {
-  const row = db
-    .select({ n: globalConfig.max_ai_decline_cycles })
-    .from(globalConfig)
-    .where(eq(globalConfig.id, 1))
-    .get();
-  return row?.n ?? 3;
-}
