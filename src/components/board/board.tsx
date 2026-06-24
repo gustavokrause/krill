@@ -573,6 +573,8 @@ export function Board({
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [config, setConfig] = useState<GlobalConfig>(initialConfig);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
+  const [activeBatch, setActiveBatch] = useState<Task[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const activeStatus = activeTask?.status ?? null;
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: DRAG_ACTIVATION_PX } }),
@@ -597,6 +599,18 @@ export function Board({
   useEffect(() => {
     setTasks(initialTasks);
   }, [initialTasks]);
+
+  // Prune stale selectedIds whenever tasks change (status change may remove draggability).
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const draggable = new Set(
+        tasks.filter((t) => DRAG_ALLOWED_TO[t.status].length > 0).map((t) => t.id),
+      );
+      const next = new Set([...prev].filter((id) => draggable.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [tasks]);
 
   const toggleAutomation = useCallback(async () => {
     const next = !config.automation_enabled;
@@ -722,6 +736,7 @@ export function Board({
 
   const handleSetFilter = useCallback((next: Set<TaskStatus>) => {
     setFilter(next);
+    setSelectedIds(new Set());
     try {
       window.localStorage.setItem(STATUS_FILTER_KEY, JSON.stringify(Array.from(next)));
     } catch {}
@@ -739,6 +754,15 @@ export function Board({
 
   const removeTask = useCallback((id: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const toggleSelection = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }, []);
 
   // Recover an orphaned-claim task: force-release the dead worker's claim so the
@@ -761,8 +785,17 @@ export function Board({
   }, [projects]);
 
   const onDragStart = useCallback(({ active }: DragStartEvent) => {
-    setActiveTask(tasks.find((t) => t.id === active.id) ?? null);
-  }, [tasks]);
+    const task = tasks.find((t) => t.id === active.id) ?? null;
+    setActiveTask(task);
+    if (task && selectedIds.has(task.id) && selectedIds.size > 1) {
+      // Batch: only same-status draggable cards participate.
+      setActiveBatch(
+        tasks.filter((t) => selectedIds.has(t.id) && t.status === task.status),
+      );
+    } else {
+      setActiveBatch([]);
+    }
+  }, [tasks, selectedIds]);
 
   const fireCancelTransition = useCallback(
     (task: Task, snapshot: Task, cancelOpts?: CancelOptions) => {
@@ -787,12 +820,85 @@ export function Board({
   const onDragEnd = useCallback(
     ({ active, over }: DragEndEvent) => {
       setActiveTask(null);
+      const batch = activeBatch;
+      setActiveBatch([]);
+
       if (!over) return;
       const task = tasks.find((t) => t.id === active.id);
       if (!task) return;
       const from = task.status;
       const to = over.id as TaskStatus;
       if (!DRAG_ALLOWED_TO[from].includes(to)) return;
+
+      // Batch path: active card was in a multi-card selection.
+      if (batch.length > 1) {
+        if (to === "CANCELED") {
+          // If any batch card has repo + PR/branch, fall back to single-card cancel dialog.
+          const hasProblem = batch.some((t) => {
+            const proj = byProject.get(t.project_id);
+            return (
+              proj?.has_repo &&
+              (!!(t.delivery_url?.startsWith("http")) || !!t.branch)
+            );
+          });
+          if (hasProblem) {
+            setSelectedIds(new Set());
+            const snapshot = task;
+            const proj = byProject.get(task.project_id);
+            if (
+              proj?.has_repo &&
+              (!!(task.delivery_url?.startsWith("http")) || !!task.branch)
+            ) {
+              upsertTask({ ...task, status: to });
+              setPendingCancel({ task, snapshot });
+            } else {
+              upsertTask({ ...task, status: to });
+              void api.transitionTask(task.id, { to }).then(
+                (updated) => {
+                  upsertTask(updated);
+                  toast.push({ variant: "success", title: `Moved to ${to}` });
+                },
+                (err) => {
+                  upsertTask(snapshot);
+                  toast.push({ variant: "danger", title: "Transition failed", description: (err as Error).message });
+                },
+              );
+            }
+            return;
+          }
+        }
+
+        const snapshots = new Map(batch.map((t) => [t.id, t]));
+        for (const t of batch) upsertTask({ ...t, status: to });
+        setSelectedIds(new Set());
+
+        void Promise.allSettled(batch.map((t) => api.transitionTask(t.id, { to }))).then(
+          (results) => {
+            let failures = 0;
+            results.forEach((result, i) => {
+              if (result.status === "fulfilled") {
+                upsertTask(result.value);
+              } else {
+                failures++;
+                const original = snapshots.get(batch[i].id);
+                if (original) upsertTask(original);
+              }
+            });
+            if (failures === 0) {
+              toast.push({ variant: "success", title: `Moved ${batch.length} to ${to}` });
+            } else {
+              toast.push({
+                variant: "danger",
+                title: `${failures} of ${batch.length} transitions failed`,
+              });
+            }
+          },
+        );
+        return;
+      }
+
+      // Single path.
+      setSelectedIds(new Set());
       const snapshot = task;
 
       // When dragging to CANCELED on a repo project with a PR or branch,
@@ -824,10 +930,13 @@ export function Board({
         },
       );
     },
-    [tasks, upsertTask, toast, byProject],
+    [tasks, activeBatch, upsertTask, toast, byProject],
   );
 
-  const onDragCancel = useCallback(() => setActiveTask(null), []);
+  const onDragCancel = useCallback(() => {
+    setActiveTask(null);
+    setActiveBatch([]);
+  }, []);
 
   // SSE has no replay: a task pushed from whale (or any external create) while
   // this tab is backgrounded/disconnected emits a task.updated we never see, so
@@ -942,6 +1051,20 @@ export function Board({
     }
   }, [bySlug, searchParams, setProjectFilter]);
 
+  // Clear selection when project filter changes (selected cards may not be visible).
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [projectFilter]);
+
+  // Clear selection on Escape.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelectedIds(new Set());
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   const byTaskId = useMemo(() => {
     const map = new Map<string, Task>();
     for (const t of tasks) map.set(t.id, t);
@@ -1051,6 +1174,8 @@ export function Board({
                 bootId={health?.boot_id ?? null}
                 onRecover={recover}
                 isDraggable={DRAG_ALLOWED_TO[t.status].length > 0}
+                selected={selectedIds.has(t.id)}
+                onShiftSelect={toggleSelection}
                 dependencies={t.depends_on
                   .map((id) => byTaskId.get(id))
                   .filter((d): d is Task => d != null)
@@ -1203,6 +1328,8 @@ export function Board({
                                 bootId={health?.boot_id ?? null}
                                 onRecover={recover}
                                 isDraggable={DRAG_ALLOWED_TO[t.status].length > 0}
+                                selected={selectedIds.has(t.id)}
+                                onShiftSelect={toggleSelection}
                                 dependencies={t.depends_on
                                   .map((id) => byTaskId.get(id))
                                   .filter((d): d is Task => d != null)
@@ -1242,6 +1369,8 @@ export function Board({
                         bootId={health?.boot_id ?? null}
                         onRecover={recover}
                         isDraggable={DRAG_ALLOWED_TO[t.status].length > 0}
+                        selected={selectedIds.has(t.id)}
+                        onShiftSelect={toggleSelection}
                         dependencies={t.depends_on
                           .map((id) => byTaskId.get(id))
                           .filter((d): d is Task => d != null)
@@ -1257,7 +1386,12 @@ export function Board({
             </div>
           </div>
           <DragOverlay>
-            {activeTask ? <TaskCardPreview task={activeTask} /> : null}
+            {activeTask ? (
+              <TaskCardPreview
+                task={activeTask}
+                count={activeBatch.length > 1 ? activeBatch.length : undefined}
+              />
+            ) : null}
           </DragOverlay>
           </DndContext>
           {pendingCancel ? (
