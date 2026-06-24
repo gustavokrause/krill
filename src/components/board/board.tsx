@@ -123,6 +123,8 @@ function termRange(w: TermWindow): { start: number; end: number } {
 
 const EXPANDED_STORAGE_KEY = "board.expandedColumns";
 const PROJECT_FILTER_KEY = "board.projectFilter";
+const TERM_WINDOW_KEY = "board.termWindow";
+const STATUS_FILTER_KEY = "board.statusFilter";
 
 const COLUMN_MIN_WIDTH_PX = 220;
 const CANCELED_MIN_WIDTH_PX = 140;
@@ -676,6 +678,31 @@ export function Board({
     }
   }, []);
 
+  useEffect(() => {
+    try {
+      const v = window.localStorage.getItem(TERM_WINDOW_KEY);
+      if (v && TERM_WINDOWS.some((w) => w.value === v)) setTermWindow(v as TermWindow);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    try { window.localStorage.setItem(TERM_WINDOW_KEY, termWindow); } catch {}
+  }, [termWindow]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(STATUS_FILTER_KEY);
+      if (!raw) return;
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      const valid = parsed.filter(
+        (s): s is TaskStatus =>
+          typeof s === "string" && (TASK_STATUSES as readonly string[]).includes(s),
+      );
+      if (valid.length) setFilter(new Set(valid));
+    } catch {}
+  }, []);
+
   const toggleExpanded = useCallback((title: string) => {
     setExpandedColumns((prev) => {
       const next = new Set(prev);
@@ -691,6 +718,13 @@ export function Board({
       }
       return next;
     });
+  }, []);
+
+  const handleSetFilter = useCallback((next: Set<TaskStatus>) => {
+    setFilter(next);
+    try {
+      window.localStorage.setItem(STATUS_FILTER_KEY, JSON.stringify(Array.from(next)));
+    } catch {}
   }, []);
 
   const upsertTask = useCallback((next: Task) => {
@@ -993,7 +1027,7 @@ export function Board({
             ))}
           </SelectContent>
         </Select>
-        <FilterMenu selected={filter} onChange={setFilter} />
+        <FilterMenu selected={filter} onChange={handleSetFilter} />
         <WorkflowModal />
         <Link href={newTaskHref}>
           <Button size="default">New task</Button>
