@@ -257,15 +257,26 @@ export function TaskCard({
       </div>
       {orphaned ? (
         <div className="mt-1.5 flex items-center justify-between gap-2 rounded-sm border border-danger/40 bg-danger/10 px-2 py-1">
-          <span className="inline-flex items-center gap-1 text-[11px] text-danger font-medium min-w-0">
-            <AlertTriangle className="h-3 w-3 shrink-0" />
-            <span className="truncate">
-              worker dead ·{" "}
-              {recoverEta > 0
-                ? `auto-recovers in ${fmtCountdown(recoverEta)}`
-                : "reclaiming…"}
+          <Tooltip
+            title="Worker dead"
+            description={`The krill process running this stage died (restart or crash), orphaning its claim. The task is stranded in ${task.status}${
+              recoverEta > 0
+                ? ` until the claim lapses — auto-recovers in ${fmtCountdown(recoverEta)}`
+                : " — reclaiming now"
+            }. Click Recover to release the claim immediately so it can be re-picked.`}
+            side="top"
+          >
+            <span className="inline-flex items-center gap-1 text-[11px] text-danger font-medium min-w-0">
+              <AlertTriangle className="h-3 w-3 shrink-0" />
+              <span className="shrink-0">worker dead</span>
+              <span className="truncate text-danger/80">
+                ·{" "}
+                {recoverEta > 0
+                  ? `auto-recovers in ${fmtCountdown(recoverEta)}`
+                  : "reclaiming…"}
+              </span>
             </span>
-          </span>
+          </Tooltip>
           <button
             type="button"
             aria-label={`Recover ${task.id}`}
