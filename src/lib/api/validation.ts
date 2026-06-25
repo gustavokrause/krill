@@ -27,6 +27,7 @@ export const projectCreateSchema = z.object({
   allow_auto_finish: z.boolean().optional(),
   delete_branch_on_done: z.boolean().optional(),
   draft_pr: z.boolean().optional(),
+  pr_description_source: z.enum(["plan", "summary"]).optional(),
 });
 
 export const projectPatchSchema = projectCreateSchema

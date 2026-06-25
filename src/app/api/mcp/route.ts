@@ -39,6 +39,17 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "task_set_plan_summary",
+    description:
+      "Write a short plain-language summary of the plan during PLANNING. Call this AFTER task_set_plan — it writes tasks.plan_summary and never touches tasks.plan. Valid only during PLANNING.",
+    inputSchema: {
+      type: "object",
+      properties: { plan_summary: { type: "string" } },
+      required: ["plan_summary"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "task_set_acceptance",
     description:
       "Set the task's acceptance: a concrete, checkable definition-of-done that VERIFYING runs the change against (e.g. \"after a test-mode checkout, the tenant's plan = the purchased tier\"). Valid only during PLANNING. Only call this when task_context shows acceptance is empty — never overwrite an existing value (it was set deliberately upstream or by a human).",
@@ -192,6 +203,11 @@ function callTool(
       return TOOL_REGISTRY.task_context(ctx);
     case "task_set_plan":
       return TOOL_REGISTRY.task_set_plan(ctx, args as { plan: string });
+    case "task_set_plan_summary":
+      return TOOL_REGISTRY.task_set_plan_summary(
+        ctx,
+        args as { plan_summary: string },
+      );
     case "task_set_acceptance":
       return TOOL_REGISTRY.task_set_acceptance(
         ctx,
