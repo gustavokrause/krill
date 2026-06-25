@@ -183,6 +183,7 @@ export const projects = sqliteTable(
       .default(true),
     // Open PRs as drafts (gh pr create --draft). Project default; task may override.
     draft_pr: integer("draft_pr", { mode: "boolean" }).notNull().default(false),
+    pr_description_source: text("pr_description_source").notNull().default("plan"),
     task_counter: integer("task_counter").notNull().default(0),
     created_at: integer("created_at").notNull(),
     updated_at: integer("updated_at").notNull(),
@@ -192,6 +193,10 @@ export const projects = sqliteTable(
     check(
       "projects_max_parallel_range",
       sql`${t.max_parallel_tasks} BETWEEN 1 AND 5`,
+    ),
+    check(
+      "projects_pr_description_source_enum",
+      sql`${t.pr_description_source} IN ('plan','summary')`,
     ),
   ],
 );
@@ -212,6 +217,7 @@ export const tasks = sqliteTable(
     pending_review_kind: text("pending_review_kind").$type<ReviewKind>(),
     mode: text("mode").notNull().$type<Mode>(),
     plan: text("plan").notNull().default(""),
+    plan_summary: text("plan_summary").notNull().default(""),
     checklist: text("checklist").notNull().default(""),
     depends_on: text("depends_on", { mode: "json" })
       .$type<string[]>()
