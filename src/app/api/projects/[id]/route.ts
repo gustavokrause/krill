@@ -69,6 +69,9 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           ? { delete_branch_on_done: body.delete_branch_on_done }
           : {}),
         ...(body.draft_pr !== undefined ? { draft_pr: body.draft_pr } : {}),
+        ...(body.pr_description_source !== undefined
+          ? { pr_description_source: body.pr_description_source }
+          : {}),
       })
       .where(eq(projects.id, id))
       .returning()
