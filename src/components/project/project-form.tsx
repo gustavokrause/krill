@@ -59,6 +59,9 @@ export function ProjectForm(props: Mode) {
     existing?.delete_branch_on_done ?? true,
   );
   const [draftPr, setDraftPr] = useState(existing?.draft_pr ?? false);
+  const [prDescriptionSource, setPrDescriptionSource] = useState<"plan" | "summary">(
+    (existing?.pr_description_source as "plan" | "summary") ?? "plan",
+  );
   const [showLegend, setShowLegend] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -101,6 +104,7 @@ export function ProjectForm(props: Mode) {
           allow_auto_finish: allowAutoFinish,
           delete_branch_on_done: deleteBranchOnDone,
           draft_pr: draftPr,
+          pr_description_source: prDescriptionSource,
         };
         await api.patchProject(props.project.id, body);
         toast.push({ variant: "success", title: "Project updated" });
@@ -367,6 +371,26 @@ export function ProjectForm(props: Mode) {
               />
             </div>
           </div>
+
+          {createPr !== false ? (
+            <Field
+              label="PR description source"
+              helper="Source for the PR body when one is opened. plan = the task plan as-is; summary = the LLM-written plan summary."
+            >
+              <Select
+                value={prDescriptionSource}
+                onValueChange={(v) => setPrDescriptionSource(v as "plan" | "summary")}
+              >
+                <SelectTrigger className="h-8 w-36 font-mono text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="plan">plan</SelectItem>
+                  <SelectItem value="summary">summary</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+          ) : null}
 
           <div className="rounded-sm border border-info/40 bg-info/5 px-3 py-2 space-y-2">
             <div className="flex items-start justify-between gap-3">
