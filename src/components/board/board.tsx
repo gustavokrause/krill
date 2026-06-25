@@ -49,6 +49,7 @@ import {
 import { TaskCard, TaskCardPreview } from "./task-card";
 import { DRAG_ACTIVATION_PX } from "./drag-constants";
 import { WorkflowModal } from "./workflow-modal";
+import { BoardCleanupDialog } from "./board-cleanup-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CancelTaskDialog, type CancelOptions } from "./cancel-task-dialog";
 import {
@@ -1129,6 +1130,7 @@ export function Board({
           </SelectContent>
         </Select>
         <FilterMenu selected={filter} onChange={handleSetFilter} />
+        <BoardCleanupDialog />
         <WorkflowModal />
         <Link href={newTaskHref}>
           <Button size="default">New task</Button>

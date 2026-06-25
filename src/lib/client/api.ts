@@ -144,4 +144,14 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(body),
     }).then((r) => r.config),
+
+  cleanupPreview: (window: string) =>
+    jsonFetch<{ count: number; window: string }>(
+      `/api/tasks/cleanup?window=${window}`,
+    ),
+  cleanupTerminals: (window: string) =>
+    jsonFetch<{ deleted: number; window: string }>("/api/tasks/cleanup", {
+      method: "POST",
+      body: JSON.stringify({ window }),
+    }),
 };
