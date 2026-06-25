@@ -553,7 +553,21 @@ export function TaskDetail({
           <TabsTrigger value="meta">Meta</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="plan" className="pt-4">
+        <TabsContent value="plan" className="pt-4 space-y-4">
+          {task.plan_summary.trim() ? (
+            <section aria-labelledby="plan-summary-label">
+              <h3
+                id="plan-summary-label"
+                className="text-xs uppercase tracking-wide text-text-2 mb-2"
+              >
+                Summary
+              </h3>
+              <pre className="text-sm whitespace-pre-wrap font-mono leading-relaxed border border-border rounded-sm p-4 bg-surface">
+                {task.plan_summary}
+              </pre>
+            </section>
+          ) : null}
+
           {task.plan ? (
             <pre className="text-sm whitespace-pre-wrap font-mono leading-relaxed border border-border rounded-sm p-4 bg-surface">
               {task.plan}
