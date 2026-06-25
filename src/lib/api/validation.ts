@@ -5,6 +5,7 @@ import {
   PRIORITIES,
   TASK_STATUSES,
 } from "@/db/schema";
+import { TERM_WINDOW_VALUES } from "@/lib/term-window";
 
 export const slugSchema = z
   .string()
@@ -161,4 +162,8 @@ export const taskListQuerySchema = z.object({
   status: z.enum(TASK_STATUSES).optional(),
   project_id: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(500).default(200),
+});
+
+export const cleanupQuerySchema = z.object({
+  window: z.enum(TERM_WINDOW_VALUES),
 });
