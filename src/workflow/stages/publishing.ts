@@ -299,7 +299,7 @@ async function publishRepo(
       base: project.default_branch,
       head: task.branch,
       title: `${task.id}: ${task.name}`,
-      body: prBody(task.id, task.plan, task.checklist),
+      body: prBody(task.id, task.plan, task.plan_summary, task.checklist, project.pr_description_source as "plan" | "summary"),
       draft: policy.draftPr,
     });
     if (task.delivery_url !== pr.url) {
@@ -543,7 +543,13 @@ async function publishWorkspace(taskId: string): Promise<void> {
   }
 }
 
-function prBody(taskId: string, plan: string, checklist: string): string {
+function prBody(
+  taskId: string,
+  plan: string,
+  planSummary: string,
+  checklist: string,
+  source: "plan" | "summary",
+): string {
   const implNotes = db
     .select()
     .from(comments)
@@ -554,8 +560,10 @@ function prBody(taskId: string, plan: string, checklist: string): string {
     .map((c) => `- (${c.author}) ${c.text}`)
     .join("\n");
 
+  const lead = source === "summary" ? (planSummary.trim() || plan) : plan;
+
   const parts = [
-    plan || "_no plan recorded_",
+    lead || "_no plan recorded_",
     "",
     "## Checklist (final state)",
     checklist || "_no checklist recorded_",
