@@ -47,6 +47,16 @@ export async function commitAll(
 ): Promise<string | null> {
   const git = simpleGit(worktreePath);
   await git.add(["-A"]);
+  // Defense in depth: drop the worktree's node_modules symlink from the index
+  // even if the target project's .gitignore doesn't cover it (a dir-only
+  // `node_modules/` pattern misses the symlink provisionWorktreeDeps creates).
+  // Staging it leaks the project's absolute path into the PR. Unstaging is a
+  // no-op when nothing matched, so this never breaks a normal commit.
+  try {
+    await git.raw(["reset", "-q", "--", "node_modules"]);
+  } catch {
+    // No node_modules in the index — nothing to unstage.
+  }
   const status = await git.status();
   if (status.staged.length === 0 && status.created.length === 0 && status.deleted.length === 0 && status.modified.length === 0 && status.renamed.length === 0) {
     return null;

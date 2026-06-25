@@ -11,7 +11,10 @@ graphify-out/
 .env.*.local
 
 # node / next
-node_modules/
+# No trailing slash: also ignores the node_modules *symlink* a worktree creates
+# (provisionWorktreeDeps). A dir-only pattern (node_modules/) missed it, so
+# `git add -A` swept the symlink into worktree PRs — leaking the absolute path.
+node_modules
 .next/
 out/
 dist/
