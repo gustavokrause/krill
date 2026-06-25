@@ -24,6 +24,7 @@ import type { McpAuthContext } from "./mcp-auth";
 
 const STAGE_GATES: Record<string, Stage[]> = {
   task_set_plan: ["planning"],
+  task_set_plan_summary: ["planning"],
   task_set_acceptance: ["planning"],
   task_set_checklist: ["planning", "implementing"],
   task_set_affected_paths: ["planning", "implementing"],
@@ -182,6 +183,16 @@ export function task_set_plan(ctx: McpAuthContext, plan: string) {
  * at task creation or by a human is left untouched (the prompt enforces the
  * "only if absent" rule; this tool just writes what it's given).
  */
+export function task_set_plan_summary(ctx: McpAuthContext, plan_summary: string) {
+  authorize(ctx, "task_set_plan_summary");
+  db.update(tasks)
+    .set({ plan_summary, updated_at: now() })
+    .where(eq(tasks.id, ctx.taskId))
+    .run();
+  emitTaskUpdated(ctx.taskId);
+  return { ok: true };
+}
+
 export function task_set_acceptance(ctx: McpAuthContext, acceptance: string) {
   authorize(ctx, "task_set_acceptance");
   db.update(tasks)

@@ -18,6 +18,7 @@ import {
   task_set_affected_paths,
   task_set_checklist,
   task_set_plan,
+  task_set_plan_summary,
   task_verify,
   task_escalate,
   task_resolve,
@@ -27,6 +28,7 @@ import type { McpAuthContext } from "./mcp-auth";
 export type ToolName =
   | "task_context"
   | "task_set_plan"
+  | "task_set_plan_summary"
   | "task_set_acceptance"
   | "task_set_checklist"
   | "task_set_affected_paths"
@@ -41,6 +43,8 @@ export const TOOL_REGISTRY = {
   task_context: (ctx: McpAuthContext) => task_context(ctx),
   task_set_plan: (ctx: McpAuthContext, args: { plan: string }) =>
     task_set_plan(ctx, args.plan),
+  task_set_plan_summary: (ctx: McpAuthContext, args: { plan_summary: string }) =>
+    task_set_plan_summary(ctx, args.plan_summary),
   task_set_acceptance: (ctx: McpAuthContext, args: { acceptance: string }) =>
     task_set_acceptance(ctx, args.acceptance),
   task_set_checklist: (ctx: McpAuthContext, args: { checklist: string }) =>
