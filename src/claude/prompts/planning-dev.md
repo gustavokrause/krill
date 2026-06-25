@@ -7,7 +7,11 @@ Mode: dev
 Read context via task_context(). Then list project.folder_path with Bash or
 Glob to map the actual directory tree — repos often nest source under a
 subdirectory; never infer paths from conventions. Then:
-1. Write a plan (task_set_plan) applying SOLID, DRY, KISS, YAGNI.
+1. Write a plan (task_set_plan) applying SOLID, DRY, KISS, YAGNI. Then call
+   task_set_plan_summary with a SHORT, plain-language summary (a few sentences
+   or tight bullets — no restating the full plan). The summary is supplementary:
+   task_set_plan remains the canonical plan write and the plan text must not be
+   altered by task_set_plan_summary.
 2. Write a checklist (task_set_checklist) using `[ ]` / `[~]` / `[x]`.
 3. Set affected_paths (task_set_affected_paths) — every file you expect to
    modify or create as a deliverable, relative to project.folder_path.

@@ -9,7 +9,11 @@ map the actual directory structure — do not infer layout from conventions.
 Then:
 1. Write a plan (task_set_plan) applying CLEAR (Complete, Legible, Exact,
    Actionable, Relevant) + DRY + KISS. Include expected results and
-   suggested deliverable location(s) under project.folder_path.
+   suggested deliverable location(s) under project.folder_path. Then call
+   task_set_plan_summary with a SHORT, plain-language summary (a few sentences
+   or tight bullets — no restating the full plan). The summary is supplementary:
+   task_set_plan remains the canonical plan write and the plan text must not be
+   altered by task_set_plan_summary.
 2. Write a checklist (task_set_checklist) using `[ ]` / `[~]` / `[x]`.
 3. Set affected_paths (task_set_affected_paths) — every deliverable file you
    will create or modify, relative to project.folder_path.
