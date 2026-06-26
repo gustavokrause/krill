@@ -229,6 +229,34 @@ export function task_set_affected_paths(
   return { ok: true, affected_paths: normalized };
 }
 
+/**
+ * Batch the PLANNING writes into ONE call. Each separate MCP tool call is a full
+ * agentic turn = a context re-read, so planning paid ~5 turns just to persist its
+ * structured output. This collapses them. Delegates to the individual setters
+ * (each runs its own PLANNING authorize), so semantics are identical. acceptance
+ * is optional and written only when provided — the "don't overwrite an existing
+ * acceptance" rule stays prompt-enforced, same as the standalone tool.
+ */
+export function task_set_plan_bundle(
+  ctx: McpAuthContext,
+  args: {
+    plan: string;
+    plan_summary: string;
+    checklist: string;
+    affected_paths: string[];
+    acceptance?: string;
+  },
+) {
+  task_set_plan(ctx, args.plan);
+  task_set_plan_summary(ctx, args.plan_summary);
+  task_set_checklist(ctx, args.checklist);
+  const ap = task_set_affected_paths(ctx, args.affected_paths);
+  if (typeof args.acceptance === "string" && args.acceptance.trim()) {
+    task_set_acceptance(ctx, args.acceptance);
+  }
+  return { ok: true, affected_paths: ap.affected_paths };
+}
+
 export function task_append_comment(
   ctx: McpAuthContext,
   stage: Task["status"],
@@ -343,18 +371,23 @@ export function task_decide(
   const max = getMaxAiDeclineCycles();
   const count = countAiAutoActions(ctx.taskId);
   if (count >= max) {
+    // Park for a human — do NOT force the task forward. After `max` declines the
+    // change still doesn't pass review; advancing it toward PUBLISHING would ship
+    // the rejected work (and AUTO-MERGE it on an armed task). Mirror the VERIFYING
+    // brake: stop at NEEDS_REVIEW(deliverable) so a person decides.
     task_append_comment(
       ctx,
       "AI-REVIEW",
-      "max AI decline cycles reached — deferring to human",
+      `max AI decline cycles (${max}) reached — parking for human review; the change has not passed review after ${max} attempts.`,
     );
-    const forced = transitionStatus({
+    const parked = transitionStatus({
       taskId: ctx.taskId,
       from: "AI-REVIEW",
-      to: target,
+      to: "NEEDS_REVIEW",
+      pendingReviewKind: "declined",
     });
-    if (!forced) throw new McpAuthError("forced transition lost; retry");
-    return { ok: true, status: target, forced: true };
+    if (!parked) throw new McpAuthError("brake transition lost; retry");
+    return { ok: true, status: "NEEDS_REVIEW", parked: true };
   }
 
   const moved = transitionStatus({

@@ -13,6 +13,22 @@ export type StuckEntry = {
   maxSec: number;
 };
 
+// Per-stage token rollup returned by GET /api/tasks/:id/usage. Mirrors the
+// server-side shape in @/lib/usage-rollups (re-declared here to keep the client
+// bundle free of server-only imports, matching how other responses are typed).
+export type StageUsageRollup = {
+  stage: string;
+  runs: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_tokens: number;
+  cache_read_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+  num_turns: number;
+  duration_ms: number;
+};
+
 export type HealthSnapshot = {
   db: { path: string; size_bytes: number | null };
   automation_enabled: boolean;
@@ -27,6 +43,7 @@ export type HealthSnapshot = {
   boot_id: string;
   active_claims: number;
   active_claim_ids: string[];
+  tokens_today: number;
 };
 
 async function jsonFetch<T>(
@@ -134,6 +151,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }).then((r) => r.comment),
+
+  getTaskUsage: (id: string) =>
+    jsonFetch<{ stages: StageUsageRollup[] }>(
+      `/api/tasks/${id}/usage`,
+    ).then((r) => r.stages),
 
   getHealth: () => jsonFetch<HealthSnapshot>("/api/health"),
 

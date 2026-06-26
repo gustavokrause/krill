@@ -1,4 +1,4 @@
-import { getRunner } from "@/claude";
+import { runStage } from "@/claude/usage";
 import { TimeoutError } from "@/claude/errors";
 import { issueToken, revokeToken } from "@/claude/mcp-auth";
 import { claim } from "../claim";
@@ -34,7 +34,7 @@ export async function runAiReview(workerId: string): Promise<string | null> {
   try {
     const prompt = pickPromptFor("ai_review", task);
     try {
-      await getRunner().run({
+      await runStage({
         stage: "ai_review",
         task,
         project,

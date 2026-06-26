@@ -63,16 +63,17 @@ test("countAiAutoActions counts AI comments since last human comment", () => {
   assert.equal(countAiAutoActions(t.id), 0);
 });
 
-test("task_decide force-moves to PUBLISHING after max_ai_decline_cycles declines", () => {
+test("task_decide parks at NEEDS_REVIEW(declined) after max_ai_decline_cycles declines", () => {
   const p = createProject({ slug: "BR" });
   const t = createTask(p, { name: "t1", status: "AI-REVIEW" });
 
-  // Default max_ai_decline_cycles=3. Three declines should force PUBLISHING.
+  // Default max_ai_decline_cycles=3. At the cap the brake PARKS for a human —
+  // it must NOT force the rejected work forward toward PUBLISHING.
   for (let i = 0; i < 3; i++) {
     task_decide(ctxFor(t.id), "decline", `attempt ${i + 1}`);
     if (i < 2) {
-      // Reset to AI-REVIEW between iterations since each decline either
-      // bounced to IMPLEMENTING or force-moved to PUBLISHING.
+      // Reset to AI-REVIEW between iterations since each non-cap decline
+      // bounced to IMPLEMENTING.
       db.update(tables.tasks)
         .set({ status: "AI-REVIEW" })
         .where(eq(tables.tasks.id, t.id))
@@ -83,8 +84,13 @@ test("task_decide force-moves to PUBLISHING after max_ai_decline_cycles declines
   const row = db.select().from(tables.tasks).where(eq(tables.tasks.id, t.id)).get();
   assert.equal(
     row!.status,
-    "PUBLISHING",
-    "brake should force-move at decline cycle ≥ max",
+    "NEEDS_REVIEW",
+    "brake should park at NEEDS_REVIEW at decline cycle ≥ max, not force forward",
+  );
+  assert.equal(
+    row!.pending_review_kind,
+    "declined",
+    "brake park should be a 'declined' review (rejected), not 'deliverable' (ready-to-merge)",
   );
 
   // A brake-marker comment should exist.

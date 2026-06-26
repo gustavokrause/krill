@@ -15,11 +15,50 @@ export type RunnerInput = {
   timeoutMs: number;
 };
 
+// Token usage for a single claude spawn, parsed from the `--output-format json`
+// result envelope. Cache field names map from the CLI's *_input_tokens keys.
+export type RunUsage = {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_tokens: number;
+  cache_read_tokens: number;
+  cost_usd: number;
+  num_turns: number;
+  duration_ms: number;
+};
+
 export type RunnerOutput = {
   stdout: string;
   stderr: string;
   exitCode: number;
+  // Set when the run produced a parseable json envelope; undefined on auth
+  // prompt / crash / non-json. Callers record it but never depend on it.
+  usage?: RunUsage;
 };
+
+/**
+ * Parse the `claude --output-format json` result envelope for token usage.
+ * Returns undefined on any failure (non-json stdout from an auth prompt, a
+ * crash, or a format change) — the caller must treat usage as best-effort.
+ */
+export function parseRunUsage(stdout: string): RunUsage | undefined {
+  try {
+    const env = JSON.parse(stdout);
+    const u = env?.usage;
+    if (!u || typeof u !== "object") return undefined;
+    return {
+      input_tokens: u.input_tokens ?? 0,
+      output_tokens: u.output_tokens ?? 0,
+      cache_creation_tokens: u.cache_creation_input_tokens ?? 0,
+      cache_read_tokens: u.cache_read_input_tokens ?? 0,
+      cost_usd: env.total_cost_usd ?? 0,
+      num_turns: env.num_turns ?? 0,
+      duration_ms: env.duration_ms ?? 0,
+    };
+  } catch {
+    return undefined;
+  }
+}
 
 export interface ClaudeRunner {
   run(input: RunnerInput): Promise<RunnerOutput>;
@@ -56,8 +95,17 @@ export class RealClaudeRunner implements ClaudeRunner {
           "--print",
           "--input-format",
           "text",
+          // json envelope carries the token `usage` + `total_cost_usd` we meter.
+          // krill never parsed stdout (transitions ride MCP tool calls), so this
+          // is a safe swap; classifyBlock still scans the raw json string below.
           "--output-format",
-          "text",
+          "json",
+          // Keep the machine-specific bits (cwd, git status, env) OUT of the
+          // cached system prompt so the static prefix stays prompt-cache-hittable
+          // across spawns. Pure cache efficiency — no behavior change. Each spawn
+          // re-reads the full context every turn, so a cheaper cached prefix is a
+          // direct cut to the cache_read that dominates our token count.
+          "--exclude-dynamic-system-prompt-sections",
           // Headless cron has no TTY for approval prompts. Permission gating
           // happens upstream (stage handlers, MCP stage-auth, brake) and the
           // subprocess is sandboxed to worktree_path / workspace_path via the
@@ -145,7 +193,7 @@ export class RealClaudeRunner implements ClaudeRunner {
           return;
         }
 
-        resolveP({ stdout, stderr, exitCode });
+        resolveP({ stdout, stderr, exitCode, usage: parseRunUsage(stdout) });
       });
 
       // Fill prompt placeholders with the real run values. The prompts carry

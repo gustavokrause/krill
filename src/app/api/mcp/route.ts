@@ -5,6 +5,7 @@ import {
 import { resolveToken, type McpAuthContext } from "@/claude/mcp-auth";
 import { TOOL_REGISTRY } from "@/claude/mcp-server";
 import { TASK_STATUSES } from "@/db/schema";
+import { logToolCall } from "@/lib/tool-log";
 
 const PROTOCOL_VERSION = "2025-06-18";
 const SERVER_INFO = {
@@ -39,9 +40,26 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "task_set_plan_bundle",
+    description:
+      "PREFERRED for PLANNING: persist the whole plan in ONE call instead of 5 separate ones (each separate call is a wasted agentic turn). Writes plan, plan_summary, checklist, and affected_paths together; pass acceptance ONLY when task_context shows it empty (never overwrite an existing one). Valid only during PLANNING.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        plan: { type: "string", description: "the canonical plan (markdown)" },
+        plan_summary: { type: "string", description: "short plain-language summary" },
+        checklist: { type: "string", description: "checklist markdown using `[ ]` / `[x]`" },
+        affected_paths: { type: "array", items: { type: "string" }, description: "files to modify/create, relative to project.folder_path" },
+        acceptance: { type: "string", description: "concrete runnable definition-of-done; omit when one already exists" },
+      },
+      required: ["plan", "plan_summary", "checklist", "affected_paths"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "task_set_plan_summary",
     description:
-      "Write a short plain-language summary of the plan during PLANNING. Call this AFTER task_set_plan — it writes tasks.plan_summary and never touches tasks.plan. Valid only during PLANNING.",
+      "Write a short plain-language summary of the plan during PLANNING. Call this AFTER task_set_plan — it writes tasks.plan_summary and never touches tasks.plan. Valid only during PLANNING. (Prefer task_set_plan_bundle to do this in one call.)",
     inputSchema: {
       type: "object",
       properties: { plan_summary: { type: "string" } },
@@ -101,7 +119,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "task_decide",
     description:
-      "AI-REVIEW decision. outcome='approve' transitions to VERIFYING (or straight to PUBLISHING when skip_verify is set). outcome='decline' transitions back to IMPLEMENTING (or forward, past the gate, if max_ai_decline_cycles is reached). Valid only during AI-REVIEW.",
+      "AI-REVIEW decision. outcome='approve' transitions to VERIFYING (or straight to PUBLISHING when skip_verify is set). outcome='decline' transitions back to IMPLEMENTING; if max_ai_decline_cycles is reached the task parks at NEEDS_REVIEW(deliverable) for a human (it is NOT forced forward). Valid only during AI-REVIEW.",
     inputSchema: {
       type: "object",
       properties: {
@@ -203,6 +221,17 @@ function callTool(
       return TOOL_REGISTRY.task_context(ctx);
     case "task_set_plan":
       return TOOL_REGISTRY.task_set_plan(ctx, args as { plan: string });
+    case "task_set_plan_bundle":
+      return TOOL_REGISTRY.task_set_plan_bundle(
+        ctx,
+        args as {
+          plan: string;
+          plan_summary: string;
+          checklist: string;
+          affected_paths: string[];
+          acceptance?: string;
+        },
+      );
     case "task_set_plan_summary":
       return TOOL_REGISTRY.task_set_plan_summary(
         ctx,
@@ -290,6 +319,8 @@ function handleRpc(req: JsonRpcRequest, ctx: McpAuthContext | null) {
     if (!params.name) {
       return rpcError(id, -32602, "tools/call missing 'name'");
     }
+    // Instrument every tool call (the bookkeeping-turn meter). Best-effort.
+    logToolCall(ctx.taskId, ctx.stage, params.name);
     try {
       const result = callTool(ctx, params.name, params.arguments ?? {});
       return rpcResult(id, {

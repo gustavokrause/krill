@@ -51,6 +51,9 @@ export const taskCreateSchema = z.object({
   skip_verify: z.boolean().optional(),
   acceptance: z.string().nullable().optional(),
   auto_publish: z.boolean().default(false),
+  // whale's pre-flight token estimate (sum of stage medians for the stages this
+  // task will run). Omitted = no estimate; the board just shows used.
+  est_tokens: z.number().int().nonnegative().nullable().optional(),
   // Per-task publish-policy overrides (null = inherit project).
   create_pr: z.boolean().nullable().optional(),
   push_remote: z.boolean().nullable().optional(),

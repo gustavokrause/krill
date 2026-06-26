@@ -3,7 +3,7 @@ import { join, relative } from "node:path";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { tasks } from "@/db/schema";
-import { getRunner } from "@/claude";
+import { runStage } from "@/claude/usage";
 import { TimeoutError } from "@/claude/errors";
 import { issueToken, revokeToken } from "@/claude/mcp-auth";
 import { commitAll, diffNamesAgainstBase, pushBranch } from "@/git";
@@ -50,7 +50,7 @@ export async function runImplementing(
   try {
     const prompt = pickPromptFor("implementing", task);
     try {
-      await getRunner().run({
+      await runStage({
         stage: "implementing",
         task,
         project,
@@ -112,6 +112,25 @@ export async function runImplementing(
         }
         return task.id;
       }
+
+      // Docs-only change → skip the dynamic VERIFYING stage. Verify would only
+      // re-read the markdown that AI-REVIEW already covers (proven duplication in
+      // the batch data) — nothing is runnable. Decided on the REAL diff, not the
+      // task text, so a code change that merely mentions "docs" is never
+      // misrouted. AI-REVIEW still gates the prose. Only flips a still-default
+      // skip_verify, and only when the entire diff is docs.
+      if (!task.skip_verify && isDocsOnlyDiff(diff)) {
+        db.update(tasks)
+          .set({ skip_verify: true, updated_at: now() })
+          .where(eq(tasks.id, task.id))
+          .run();
+        task.skip_verify = true;
+        appendAiComment(
+          task.id,
+          "docs-only change — skipping dynamic verify; AI-REVIEW covers the prose.",
+          "IMPLEMENTING",
+        );
+      }
     } else {
       const scanned = scanWorkspace(cwd);
       db.update(tasks)
@@ -141,6 +160,15 @@ export async function runImplementing(
   } finally {
     revokeToken(token);
   }
+}
+
+// Non-runnable documentation artifacts: a diff of only these has nothing for the
+// dynamic VERIFYING stage to execute (AI-REVIEW still reads the prose).
+const DOC_PATH_RE = /\.(md|mdx|markdown|txt|rst|adoc)$|(^|\/)(docs?|documentation)\//i;
+
+/** True when the diff is non-empty AND every changed path is a doc artifact. */
+export function isDocsOnlyDiff(paths: string[]): boolean {
+  return paths.length > 0 && paths.every((p) => DOC_PATH_RE.test(p));
 }
 
 function scanWorkspace(root: string): string[] {

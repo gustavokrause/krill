@@ -2,17 +2,20 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { FolderGit2, GitBranch, Layers, Pause, Play } from "lucide-react";
+import { Coins, FolderGit2, GitBranch, Layers, Pause, Play } from "lucide-react";
 import type { Project } from "@/db/schema";
 import { useEventSource } from "@/lib/client/use-event-source";
+import { formatTokens } from "@/lib/client/format";
 import { Button } from "@/components/ui/button";
 
 function ProjectCard({
   p,
   activeCount,
+  tokensUsed,
 }: {
   p: Project;
   activeCount: number;
+  tokensUsed: number;
 }) {
   const slotsFull = activeCount >= p.max_parallel_tasks;
   return (
@@ -59,6 +62,14 @@ function ProjectCard({
           </span>
           <span>slots</span>
         </span>
+        <span
+          className="inline-flex items-center gap-1.5"
+          title={`Total tokens metered across all tasks in this project: ${tokensUsed.toLocaleString()}`}
+        >
+          <Coins className="h-3.5 w-3.5" />
+          <span className="font-mono">{formatTokens(tokensUsed)}</span>
+          <span>tok</span>
+        </span>
         <span className="ml-auto text-text-3 group-hover:text-text transition-colors">
           Edit →
         </span>
@@ -84,7 +95,11 @@ function StatusPill({ paused }: { paused: boolean }) {
   );
 }
 
-export type ProjectListEntry = { project: Project; activeCount: number };
+export type ProjectListEntry = {
+  project: Project;
+  activeCount: number;
+  tokensUsed: number;
+};
 
 export function ProjectList({ initial }: { initial: ProjectListEntry[] }) {
   const [entries, setEntries] = useState<ProjectListEntry[]>(initial);
@@ -98,7 +113,8 @@ export function ProjectList({ initial }: { initial: ProjectListEntry[] }) {
   const upsert = useCallback((p: Project) => {
     setEntries((prev) => {
       const i = prev.findIndex((x) => x.project.id === p.id);
-      if (i === -1) return [...prev, { project: p, activeCount: 0 }];
+      if (i === -1)
+        return [...prev, { project: p, activeCount: 0, tokensUsed: 0 }];
       const copy = prev.slice();
       copy[i] = { ...copy[i], project: p };
       return copy;
@@ -145,6 +161,7 @@ export function ProjectList({ initial }: { initial: ProjectListEntry[] }) {
                 key={e.project.id}
                 p={e.project}
                 activeCount={e.activeCount}
+                tokensUsed={e.tokensUsed}
               />
             ))}
           </div>

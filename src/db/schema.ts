@@ -3,6 +3,7 @@ import {
   check,
   index,
   integer,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -31,7 +32,10 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 // change meets its acceptance and a human must look.
 // "question" — a stage hit a judgment fork it couldn't resolve and the
 // higher-effort auto-resolver also deferred; a human must decide.
-export const REVIEW_KINDS = ["plan", "deliverable", "conflict", "empty", "verify", "question"] as const;
+// "declined" — AI-REVIEW declined the change past the brake (max cycles). The
+// deliverable EXISTS but was rejected — distinct from "deliverable" (which means
+// approved-pending-merge) so the board never reads a rejected change as ready.
+export const REVIEW_KINDS = ["plan", "deliverable", "conflict", "empty", "verify", "question", "declined"] as const;
 export type ReviewKind = (typeof REVIEW_KINDS)[number];
 
 // Statuses where the worktree is preserved (cleanup gate must skip these).
@@ -235,6 +239,12 @@ export const tasks = sqliteTable(
     worktree_path: text("worktree_path"),
     workspace_path: text("workspace_path"),
     delivery_url: text("delivery_url"),
+    // Token accounting (denormalized rollups so the board reads them without a
+    // join). `tokens_used` is the running sum of every stage_usage row for this
+    // task (a task re-runs stages, so the leaf-level detail lives in stage_usage).
+    // `est_tokens` is whale's pre-flight estimate, set at push; NULL = no estimate.
+    est_tokens: integer("est_tokens"),
+    tokens_used: integer("tokens_used").notNull().default(0),
     skip_plan: integer("skip_plan", { mode: "boolean" }).notNull().default(false),
     skip_plan_review: integer("skip_plan_review", { mode: "boolean" })
       .notNull()
@@ -296,7 +306,7 @@ export const tasks = sqliteTable(
     check("tasks_mode_enum", sql`${t.mode} IN ('dev','non-dev')`),
     check(
       "tasks_pending_review_kind_enum",
-      sql`${t.pending_review_kind} IS NULL OR ${t.pending_review_kind} IN ('plan','deliverable','conflict','empty','verify','question')`,
+      sql`${t.pending_review_kind} IS NULL OR ${t.pending_review_kind} IN ('plan','deliverable','conflict','empty','verify','question','declined')`,
     ),
     check(
       "tasks_pending_review_kind_requires_status",
@@ -346,6 +356,60 @@ export const followups = sqliteTable(
   (t) => [index("followups_status_idx").on(t.status)],
 );
 
+// -- STAGE USAGE (append-only token meter) --
+// One row per claude CLI spawn (the leaf). Stage is the atom; task / project /
+// global totals are SUM rollups over this table. project_id is denormalized for
+// fast per-project rollups without joining through tasks. Escalation-resolver
+// runs are recorded under stage "ai_review" (they share that model/token) in v1.
+export const stageUsage = sqliteTable(
+  "stage_usage",
+  {
+    id: text("id").primaryKey(),
+    task_id: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    project_id: text("project_id").notNull(),
+    stage: text("stage").notNull(),
+    model: text("model").notNull(),
+    input_tokens: integer("input_tokens").notNull().default(0),
+    output_tokens: integer("output_tokens").notNull().default(0),
+    cache_creation_tokens: integer("cache_creation_tokens").notNull().default(0),
+    cache_read_tokens: integer("cache_read_tokens").notNull().default(0),
+    cost_usd: real("cost_usd").notNull().default(0),
+    num_turns: integer("num_turns").notNull().default(0),
+    duration_ms: integer("duration_ms").notNull().default(0),
+    created_at: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("stage_usage_task_idx").on(t.task_id),
+    index("stage_usage_project_idx").on(t.project_id),
+    index("stage_usage_stage_idx").on(t.stage),
+    index("stage_usage_created_idx").on(t.created_at),
+  ],
+);
+
+// -- TOOL CALLS (append-only instrument) --
+// One row per krill MCP tool call (task_context, task_set_checklist, task_decide,
+// …). Lets us see the BOOKKEEPING share of a stage's turns — each separate tool
+// call is one agentic turn = one full context re-read. Combined with
+// stage_usage.num_turns, this is how we tune prompt persistence later. Only krill's
+// own tools are visible here (Read/Edit/Bash are the CLI's, not ours).
+export const toolCalls = sqliteTable(
+  "tool_calls",
+  {
+    id: text("id").primaryKey(),
+    task_id: text("task_id").notNull(),
+    stage: text("stage").notNull(),
+    tool: text("tool").notNull(),
+    created_at: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("tool_calls_task_idx").on(t.task_id),
+    index("tool_calls_tool_idx").on(t.tool),
+    index("tool_calls_created_idx").on(t.created_at),
+  ],
+);
+
 // -- COMMENTS (append-only) --
 
 export const comments = sqliteTable(
@@ -377,3 +441,7 @@ export type NewComment = typeof comments.$inferInsert;
 export type GlobalConfig = typeof globalConfig.$inferSelect;
 export type Blocker = typeof blockers.$inferSelect;
 export type Followup = typeof followups.$inferSelect;
+export type StageUsage = typeof stageUsage.$inferSelect;
+export type NewStageUsage = typeof stageUsage.$inferInsert;
+export type ToolCall = typeof toolCalls.$inferSelect;
+export type NewToolCall = typeof toolCalls.$inferInsert;

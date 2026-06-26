@@ -1,5 +1,5 @@
 import { and, eq, gte, like } from "drizzle-orm";
-import { getRunner } from "@/claude";
+import { runStage } from "@/claude/usage";
 import { TimeoutError } from "@/claude/errors";
 import { issueToken, revokeToken } from "@/claude/mcp-auth";
 import { db } from "@/db/client";
@@ -52,7 +52,7 @@ export async function runVerify(workerId: string): Promise<string | null> {
   try {
     const prompt = pickPromptFor("verify", task);
     try {
-      await getRunner().run({
+      await runStage({
         stage: "verify",
         task,
         project,

@@ -27,6 +27,7 @@ import type { StuckEntry } from "@/lib/client/api";
 import { DRAG_ACTIVATION_PX } from "./drag-constants";
 import { PriorityBadge } from "@/components/ui/badge";
 import { Tooltip } from "@/components/ui/tooltip";
+import { formatTokens } from "@/lib/client/format";
 
 const STATUS_ICON: Record<TaskStatus, LucideIcon> = {
   BACKLOG: CircleDashed,
@@ -61,6 +62,7 @@ const KIND_LABEL: Record<ReviewKind, string> = {
   empty: "empty",
   verify: "verify",
   question: "question",
+  declined: "rejected",
 };
 
 const KIND_COLOR: Record<ReviewKind, string> = {
@@ -70,6 +72,9 @@ const KIND_COLOR: Record<ReviewKind, string> = {
   empty: "bg-warning/10 text-warning border-warning/40",
   verify: "bg-warning/10 text-warning border-warning/40",
   question: "bg-danger/10 text-danger border-danger/40",
+  // Rejected by AI-REVIEW — danger, never success. A rejected change must not
+  // read like an approved deliverable (the green that caused the bad DONE).
+  declined: "bg-danger/10 text-danger border-danger/40",
 };
 
 const TERMINAL = new Set<TaskStatus>(["DONE", "CANCELED"]);
@@ -195,6 +200,12 @@ export function TaskCard({
   if (task.skip_plan) skipLabels.push("skip plan");
   if (task.skip_plan_review) skipLabels.push("skip plan review");
   if (task.skip_ai_review) skipLabels.push("skip AI review");
+
+  // Token badge: actual used vs whale's pre-flight estimate. Nothing metered and
+  // no estimate → hide. Over the estimate → warning color.
+  const showTokens = !(task.tokens_used === 0 && task.est_tokens == null);
+  const overBudget =
+    task.est_tokens != null && task.tokens_used > task.est_tokens;
 
   return (
     <Link
@@ -357,6 +368,26 @@ export function TaskCard({
               >
                 <Zap className="h-2.5 w-2.5" />
                 <span className="font-mono">auto</span>
+              </span>
+            </Tooltip>
+          ) : null}
+          {showTokens ? (
+            <Tooltip
+              title="Tokens"
+              description={
+                task.est_tokens != null
+                  ? `${task.tokens_used.toLocaleString()} used / ${task.est_tokens.toLocaleString()} estimated${overBudget ? " — over budget" : ""}`
+                  : `${task.tokens_used.toLocaleString()} tokens used (no estimate)`
+              }
+              side="top"
+            >
+              <span
+                className={`font-mono text-[10px] shrink-0 ${overBudget ? "text-warning" : "text-text-3"}`}
+              >
+                {formatTokens(task.tokens_used)}
+                {task.est_tokens != null
+                  ? ` / ${formatTokens(task.est_tokens)}`
+                  : ""}
               </span>
             </Tooltip>
           ) : null}

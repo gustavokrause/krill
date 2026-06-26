@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { resolve as resolvePath } from "node:path";
 import { db } from "@/db/client";
 import { globalConfig, tasks, type Task } from "@/db/schema";
-import { getRunner } from "@/claude";
+import { runStage } from "@/claude/usage";
 import { TimeoutError } from "@/claude/errors";
 import { issueToken, revokeToken } from "@/claude/mcp-auth";
 import { resolveProjectPath } from "@/lib/api/util";
@@ -84,7 +84,7 @@ export async function runEscalationResolver(): Promise<string | null> {
   try {
     const prompt = loadPrompt("resolve.md");
     try {
-      await getRunner().run({
+      await runStage({
         stage: "ai_review",
         task,
         project,
