@@ -306,7 +306,7 @@ const FORWARD_EDGES: { from: string; to: string; label: string }[] = [
   { from: "PLANNING", to: "IMPLEMENTING", label: "Opus → human approve plan" },
   { from: "IMPLEMENTING", to: "AI-REVIEW", label: "Sonnet" },
   { from: "AI-REVIEW", to: "VERIFYING", label: "Opus approve" },
-  { from: "VERIFYING", to: "PUBLISHING", label: "Opus verified" },
+  { from: "VERIFYING", to: "PUBLISHING", label: "Sonnet verified" },
   { from: "PUBLISHING", to: "NEEDS_REVIEW", label: "deliverable | conflict" },
   { from: "NEEDS_REVIEW", to: "DONE", label: "human approve" },
 ];
@@ -558,9 +558,9 @@ function Legend() {
         <div className="font-medium text-text mb-1">Models</div>
         <ul className="space-y-0.5">
           <li><span className="font-mono text-text-2">auto</span> — <span className="font-mono text-info">TODO</span> pick (deterministic SQL, no model)</li>
-          <li><span className="font-mono text-ai">Opus</span> — <span className="font-mono text-info">PLANNING</span>, <span className="font-mono text-warning">AI-REVIEW</span>, <span className="font-mono text-warning">VERIFYING</span></li>
-          <li><span className="font-mono text-ai">Sonnet</span> — <span className="font-mono text-info">IMPLEMENTING</span>, <span className="font-mono text-info">PUBLISHING</span></li>
-          <li><span className="font-mono text-human">human</span> — <span className="font-mono text-warning">NEEDS_REVIEW</span> (plan / deliverable / conflict), <span className="font-mono text-muted">cancel</span></li>
+          <li><span className="font-mono text-ai">Opus</span> — <span className="font-mono text-info">PLANNING</span>, <span className="font-mono text-warning">AI-REVIEW</span>, escalation auto-resolver</li>
+          <li><span className="font-mono text-ai">Sonnet</span> — <span className="font-mono text-info">IMPLEMENTING</span>, <span className="font-mono text-warning">VERIFYING</span>; <span className="font-mono text-info">PUBLISHING</span> only on the conflict resolver (happy path is LLM-free)</li>
+          <li><span className="font-mono text-human">human</span> — <span className="font-mono text-warning">NEEDS_REVIEW</span> (plan / deliverable / conflict / empty / verify / question / declined), <span className="font-mono text-muted">cancel</span></li>
         </ul>
       </div>
       <div>
@@ -586,7 +586,10 @@ function Legend() {
           <li><span className="font-mono text-warning">plan</span> — entered after <span className="font-mono text-info">PLANNING</span>. Diagram folds it into the <span className="font-mono">PLANNING → IMPLEMENTING</span> arrow. Approve → <span className="font-mono text-info">IMPLEMENTING</span>; decline → back to <span className="font-mono text-info">PLANNING</span>.</li>
           <li><span className="font-mono text-warning">deliverable</span> — entered after a clean PUBLISHING. Approve → <span className="font-mono text-success">DONE</span> (PR squash-merge when has_repo); decline → <span className="font-mono text-info">IMPLEMENTING</span>.</li>
           <li><span className="font-mono text-warning">conflict</span> — has_repo only. Retry PUBLISHING (re-runs the deterministic merge), Solve with Sonnet (shown only when <span className="font-mono">publishing_solve_conflicts=false</span>), or decline → <span className="font-mono text-info">IMPLEMENTING</span>.</li>
-          <li><span className="font-mono text-warning">verify</span> — VERIFYING failed past <span className="font-mono">max_ai_decline_cycles</span> (couldn&apos;t prove the change runs). Back to <span className="font-mono text-info">IMPLEMENTING</span> to redo, or override straight to <span className="font-mono text-info">PUBLISHING</span>.</li>
+          <li><span className="font-mono text-warning">verify</span> — VERIFYING failed past <span className="font-mono">max_ai_decline_cycles</span> (couldn&apos;t prove the change meets <span className="font-mono">acceptance</span>). Back to <span className="font-mono text-info">IMPLEMENTING</span> to redo, or override straight to <span className="font-mono text-info">PUBLISHING</span>.</li>
+          <li><span className="font-mono text-warning">declined</span> — <span className="font-mono text-warning">AI-REVIEW</span> rejected the change past the brake. The deliverable EXISTS but was declined (distinct from <span className="font-mono">deliverable</span> = approved-pending-merge). Human redirects to <span className="font-mono text-info">IMPLEMENTING</span> or ships it anyway.</li>
+          <li><span className="font-mono text-warning">question</span> — a stage hit a judgment fork. The <span className="font-mono">escalation_auto_resolve</span> Opus pass also deferred (or is off), so a human picks from the recorded options; the answer resumes the origin stage.</li>
+          <li><span className="font-mono text-warning">empty</span> — IMPLEMENTING produced no commits / nothing to ship. No artifact to approve — re-run <span className="font-mono text-info">IMPLEMENTING</span> or cancel.</li>
         </ul>
       </div>
       <div>
@@ -597,7 +600,7 @@ function Legend() {
           <li><span className="font-mono text-muted">skip_ai_review</span> — <span className="font-mono text-info">IMPLEMENTING</span> skips <span className="font-mono text-warning">AI-REVIEW</span>, into <span className="font-mono text-warning">VERIFYING</span>.</li>
           <li><span className="font-mono text-muted">skip_verify</span> — skip <span className="font-mono text-warning">VERIFYING</span> (don&apos;t run the change); go to <span className="font-mono text-info">PUBLISHING</span>. Default ON for non-dev, OFF for dev.</li>
           <li><span className="font-mono text-success">auto_publish</span> — with project <span className="font-mono">allow_auto_finish</span>, <span className="font-mono text-info">PUBLISHING</span> merges straight to <span className="font-mono text-success">DONE</span>, no <span className="text-human">human</span> gate (AI-review still runs). On repos, suppressed when <span className="font-mono">merge_to_main</span> is off, the PR is a draft, or the merge would leave a remote behind; on no-repo projects it always finishes (no merge, so none of those apply).</li>
-          <li><span className="font-mono text-warning">max_ai_decline_cycles</span> — after N <span className="text-ai">AI</span> declines/conflicts, force-move to <span className="font-mono text-warning">NEEDS_REVIEW(conflict)</span>.</li>
+          <li><span className="font-mono text-warning">max_ai_decline_cycles</span> — after N <span className="text-ai">AI</span> auto-actions without progress, park for a human at the kind that fits the stage: <span className="font-mono text-warning">declined</span> (AI-REVIEW), <span className="font-mono text-warning">verify</span> (VERIFYING), or <span className="font-mono text-warning">conflict</span> (PUBLISHING).</li>
         </ul>
       </div>
       <div>
