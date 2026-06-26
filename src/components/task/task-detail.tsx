@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type {
@@ -11,7 +11,8 @@ import type {
   Task,
   TaskStatus,
 } from "@/db/schema";
-import { api } from "@/lib/client/api";
+import { api, type StageUsageRollup } from "@/lib/client/api";
+import { formatTokens } from "@/lib/client/format";
 import { countAiAutoActionsFromComments } from "@/lib/ai-comments";
 import { useEventSource } from "@/lib/client/use-event-source";
 import { Button } from "@/components/ui/button";
@@ -56,7 +57,7 @@ function intentFor(
   // NEEDS_REVIEW(deliverable | conflict | empty) → IMPLEMENTING is decline/redo.
   if (
     from === "NEEDS_REVIEW" &&
-    (kind === "deliverable" || kind === "conflict" || kind === "empty" || kind === "verify") &&
+    (kind === "deliverable" || kind === "conflict" || kind === "empty" || kind === "verify" || kind === "declined") &&
     to === "IMPLEMENTING"
   ) {
     return "back";
@@ -176,6 +177,13 @@ function nextStatusesFor(task: Task): TaskStatus[] {
           return ["IMPLEMENTING", "PLANNING", "BACKLOG", "CANCELED"];
         case "deliverable":
           return ["DONE", "IMPLEMENTING", "BACKLOG", "CANCELED"];
+        case "declined":
+          // AI-REVIEW rejected the change past the retry limit. There is NO
+          // merged PR — so NO DONE here (that would mark complete without a
+          // merge, the exact orphan-bug we're guarding against). Fix it
+          // (IMPLEMENTING), override-ship through proper publish (PUBLISHING),
+          // or shelve/abandon.
+          return ["IMPLEMENTING", "PUBLISHING", "BACKLOG", "CANCELED"];
         case "conflict":
           return ["PUBLISHING", "IMPLEMENTING", "BACKLOG", "CANCELED"];
         case "verify":
@@ -386,6 +394,15 @@ export function TaskDetail({
         showSolveWithSonnet: false,
       };
     }
+    if (kind === "declined") {
+      return {
+        kind,
+        title: "AI review rejected",
+        message:
+          "AI-REVIEW declined this change past the retry limit — it was NOT approved, and there is no merged PR. Read the decline comments below for the specific issue, then send back to IMPLEMENTING to fix it (or override to PUBLISHING if you disagree). It can't be marked DONE — there's nothing merged.",
+        showSolveWithSonnet: false,
+      };
+    }
     if (kind === "question") {
       const esc = parseEscalation(task);
       const origin = esc?.origin_stage ?? "the stage";
@@ -550,6 +567,7 @@ export function TaskDetail({
               {sortedComments.length}
             </span>
           </TabsTrigger>
+          <TabsTrigger value="usage">Usage</TabsTrigger>
           <TabsTrigger value="meta">Meta</TabsTrigger>
         </TabsList>
 
@@ -649,6 +667,10 @@ export function TaskDetail({
               </Button>
             </div>
           </form>
+        </TabsContent>
+
+        <TabsContent value="usage" className="pt-4">
+          <UsageTab taskId={task.id} />
         </TabsContent>
 
         <TabsContent value="meta" className="pt-4 text-sm">
@@ -1015,4 +1037,149 @@ function MetaRow({ k, v }: { k: string; v: string }) {
 function fmt(ts: number | null | undefined): string {
   if (!ts) return "—";
   return new Date(ts * 1000).toLocaleString();
+}
+
+const STAGE_LABEL: Record<string, string> = {
+  planning: "PLANNING",
+  implementing: "IMPLEMENTING",
+  ai_review: "AI-REVIEW",
+  verify: "VERIFYING",
+  publishing: "PUBLISHING",
+};
+
+function fmtDuration(ms: number): string {
+  if (!ms) return "—";
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem ? `${m}m ${rem}s` : `${m}m`;
+}
+
+function UsageTab({ taskId }: { taskId: string }) {
+  const [stages, setStages] = useState<StageUsageRollup[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch once the tab mounts (TabsContent only renders the active tab's body).
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getTaskUsage(taskId)
+      .then((s) => {
+        if (!cancelled) setStages(s);
+      })
+      .catch((err) => {
+        if (!cancelled) setError((err as Error).message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [taskId]);
+
+  if (error) {
+    return <p className="text-sm text-danger">Could not load usage: {error}</p>;
+  }
+  if (stages === null) {
+    return (
+      <p className="inline-flex items-center gap-2 text-sm text-text-2">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Loading usage…
+      </p>
+    );
+  }
+  if (stages.length === 0) {
+    return (
+      <p className="text-sm text-text-2">
+        No tokens metered yet — usage appears once stages start running.
+      </p>
+    );
+  }
+
+  const totals = stages.reduce(
+    (acc, s) => ({
+      runs: acc.runs + s.runs,
+      total_tokens: acc.total_tokens + s.total_tokens,
+      cost_usd: acc.cost_usd + s.cost_usd,
+      num_turns: acc.num_turns + s.num_turns,
+      duration_ms: acc.duration_ms + s.duration_ms,
+    }),
+    { runs: 0, total_tokens: 0, cost_usd: 0, num_turns: 0, duration_ms: 0 },
+  );
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm border border-border rounded-sm">
+        <thead>
+          <tr className="border-b border-border text-xs uppercase tracking-wide text-text-2 text-left">
+            <th className="px-3 py-2 font-medium">Stage</th>
+            <th className="px-3 py-2 font-medium text-right">Runs</th>
+            <th className="px-3 py-2 font-medium text-right">Tokens</th>
+            <th className="px-3 py-2 font-medium text-right">Cost</th>
+            <th className="px-3 py-2 font-medium text-right">Turns</th>
+            <th className="px-3 py-2 font-medium text-right">Duration</th>
+          </tr>
+        </thead>
+        <tbody className="font-mono">
+          {stages.map((s) => {
+            const isVerify = s.stage === "verify";
+            return (
+              <tr
+                key={s.stage}
+                className={cn(
+                  "border-b border-border last:border-b-0",
+                  isVerify && "bg-warning/5",
+                )}
+              >
+                <td
+                  className={cn(
+                    "px-3 py-2",
+                    isVerify ? "text-warning font-medium" : "text-text",
+                  )}
+                >
+                  {STAGE_LABEL[s.stage] ?? s.stage}
+                </td>
+                <td className="px-3 py-2 text-right text-text-2">{s.runs}</td>
+                <td
+                  className="px-3 py-2 text-right text-text"
+                  title={`${s.total_tokens.toLocaleString()} tokens`}
+                >
+                  {formatTokens(s.total_tokens)}
+                </td>
+                <td className="px-3 py-2 text-right text-text-2">
+                  ${s.cost_usd.toFixed(2)}
+                </td>
+                <td className="px-3 py-2 text-right text-text-2">
+                  {s.num_turns}
+                </td>
+                <td className="px-3 py-2 text-right text-text-2">
+                  {fmtDuration(s.duration_ms)}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+        <tfoot>
+          <tr className="border-t border-border-strong font-mono font-medium">
+            <td className="px-3 py-2 text-text">Total</td>
+            <td className="px-3 py-2 text-right text-text-2">{totals.runs}</td>
+            <td
+              className="px-3 py-2 text-right text-text"
+              title={`${totals.total_tokens.toLocaleString()} tokens`}
+            >
+              {formatTokens(totals.total_tokens)}
+            </td>
+            <td className="px-3 py-2 text-right text-text">
+              ${totals.cost_usd.toFixed(2)}
+            </td>
+            <td className="px-3 py-2 text-right text-text-2">
+              {totals.num_turns}
+            </td>
+            <td className="px-3 py-2 text-right text-text-2">
+              {fmtDuration(totals.duration_ms)}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
 }

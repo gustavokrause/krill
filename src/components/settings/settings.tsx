@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { GlobalConfig, StageEnabled } from "@/db/schema";
+import { MODEL_BY_STAGE } from "@/claude/model-map";
 import { api, type HealthSnapshot } from "@/lib/client/api";
 import { useEventSource } from "@/lib/client/use-event-source";
 import { Label } from "@/components/ui/input";
@@ -40,12 +41,24 @@ const STAGE_COLOR: Record<keyof StageEnabled, string> = {
   publishing: "text-info",
 };
 
+// Display label for a model id. Derived from MODEL_BY_STAGE (the single source of
+// truth the runner uses) so the settings page can never drift from the actual
+// model again — that drift is exactly why verify showed "Opus" after the swap.
+const modelLabel = (id: string) =>
+  id.includes("opus")
+    ? "Opus"
+    : id.includes("sonnet")
+      ? "Sonnet"
+      : id.includes("haiku")
+        ? "Haiku"
+        : id;
+
 const STAGE_MODEL: Record<keyof StageEnabled, string> = {
   todo_picker: "SQL",
-  planning: "Opus",
-  implementing: "Sonnet",
-  ai_review: "Opus",
-  verify: "Opus",
+  planning: modelLabel(MODEL_BY_STAGE.planning),
+  implementing: modelLabel(MODEL_BY_STAGE.implementing),
+  ai_review: modelLabel(MODEL_BY_STAGE.ai_review),
+  verify: modelLabel(MODEL_BY_STAGE.verify),
   publishing: "shell",
 };
 

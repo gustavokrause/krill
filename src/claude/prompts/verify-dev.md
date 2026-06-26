@@ -19,6 +19,21 @@ Steps:
    - When the acceptance describes runtime behavior, BOOT the app and exercise
      the exact golden path it names (hit the endpoint, run the CLI, drive the
      flow) and observe the real result — don't assume from the diff.
+     PORT SAFETY (critical — read this): the LIVE app may already be running on
+     its default port (this could be a self-edit of the very fleet you run in —
+     whale=4100, krill=3000 — or any service whose default port is held). NEVER
+     boot on the default port: you would HIJACK the running instance and serve
+     this unmerged worktree in its place. ALWAYS start the server on a FREE high
+     port you choose (e.g. `next dev -p <free>` / the app's `--port` flag / a
+     `PORT=<free>` env if it honors one), drive THAT url, and STOP it when done.
+     Treat `EADDRINUSE` as "pick another free port", never as a failure of the
+     change under test. ABSOLUTE RULE: NEVER kill a process or free an occupied
+     port to make room — no `kill`, no `lsof -ti:<port> | xargs kill`, no `fuser
+     -k`. The process on that port may be the LIVE FLEET you are running inside
+     (the whale/krill that dispatched you) or another service; killing it takes
+     the system down. A busy port is NEVER yours to reclaim — choose a different
+     free port. Touch NOTHING outside this worktree: no other process, no other
+     port, no global state.
      NOTE: this worktree's `node_modules` is a symlink to the project root. If
      the dev server uses Turbopack (`next dev --turbopack`), start it WITHOUT
      Turbopack — plain webpack `next dev`, or `next build && next start` —

@@ -119,6 +119,17 @@ export class StubClaudeRunner implements ClaudeRunner {
       stdout: log.join("\n"),
       stderr: "",
       exitCode: 0,
+      // Synthetic usage so the stub path still populates stage_usage (tests +
+      // local runs get a token meter without spawning the real CLI).
+      usage: {
+        input_tokens: 500,
+        output_tokens: 1000,
+        cache_creation_tokens: 0,
+        cache_read_tokens: 0,
+        cost_usd: 0,
+        num_turns: 1,
+        duration_ms: 0,
+      },
     };
   }
 }

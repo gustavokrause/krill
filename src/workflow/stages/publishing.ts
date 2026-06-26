@@ -10,7 +10,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { comments, globalConfig, tasks } from "@/db/schema";
-import { getRunner } from "@/claude";
+import { runStage } from "@/claude/usage";
 import { issueToken, revokeToken } from "@/claude/mcp-auth";
 import {
   abortMerge,
@@ -446,7 +446,7 @@ export async function attemptAiConflictResolve(
 
   const token = issueToken(task.id, "publishing", ttl);
   try {
-    await getRunner().run({
+    await runStage({
       stage: "publishing",
       task,
       project,

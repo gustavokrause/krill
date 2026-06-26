@@ -14,6 +14,7 @@ import { snapshotBackoff } from "@/workflow/backoff";
 import { getBootId } from "@/workflow/boot-id";
 import { findStuckTasks } from "@/workflow/stuck";
 import { listenerCount } from "@/lib/sse";
+import { getTokensToday } from "@/lib/usage-rollups";
 
 export type HealthSnapshot = {
   db: { path: string; size_bytes: number | null };
@@ -33,6 +34,9 @@ export type HealthSnapshot = {
   // running a stage. Restarting now orphans them; the UI + scripts gate on this.
   active_claims: number;
   active_claim_ids: string[];
+  // Total tokens metered across all stage spawns since local midnight — the
+  // global "drain today" number shown in the footer.
+  tokens_today: number;
 };
 
 export function getHealth(): HealthSnapshot {
@@ -98,6 +102,7 @@ export function getHealth(): HealthSnapshot {
     boot_id: getBootId(),
     active_claims: liveClaims.length,
     active_claim_ids: liveClaims.map((r) => r.id),
+    tokens_today: getTokensToday(),
   };
 }
 

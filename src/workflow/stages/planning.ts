@@ -1,4 +1,4 @@
-import { getRunner } from "@/claude";
+import { runStage } from "@/claude/usage";
 import { TimeoutError } from "@/claude/errors";
 import { issueToken, revokeToken } from "@/claude/mcp-auth";
 import { claim } from "../claim";
@@ -46,7 +46,7 @@ export async function runPlanning(workerId: string): Promise<string | null> {
     const cwd = task.worktree_path ?? task.workspace_path!;
     const prompt = pickPromptFor("planning", task);
     try {
-      await getRunner().run({
+      await runStage({
         stage: "planning",
         task,
         project,
