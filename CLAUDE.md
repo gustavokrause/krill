@@ -11,9 +11,9 @@ Local app that automates a task pipeline via Claude Code CLI. Single-user, local
 
 ## Workflow at a glance
 
-States: `BACKLOG → TODO → PLANNING → NEEDS_REVIEW(plan) → IMPLEMENTING → AI-REVIEW → PUBLISHING → NEEDS_REVIEW(deliverable|conflict) → DONE` (plus `CANCELED`). NEEDS_REVIEW is a single status discriminated by `pending_review_kind`.
+States: `BACKLOG → TODO → PLANNING → NEEDS_REVIEW(plan) → IMPLEMENTING → AI-REVIEW → VERIFYING → PUBLISHING → NEEDS_REVIEW(deliverable|conflict) → DONE` (plus `CANCELED`). NEEDS_REVIEW is a single status discriminated by `pending_review_kind` (`plan | deliverable | conflict | empty | verify | question | declined`).
 
-Models per stage: deterministic SQL (TODO pick), Opus (PLANNING, AI-REVIEW), Sonnet (IMPLEMENTING), deterministic (PUBLISHING happy path — LLM-free; Sonnet only on merge-conflict sub-step gated by `{publishing_solve_conflicts}`).
+Models per stage: deterministic SQL (TODO pick), Opus (PLANNING, AI-REVIEW), Sonnet (IMPLEMENTING, VERIFYING), deterministic (PUBLISHING happy path — LLM-free; Sonnet only on merge-conflict sub-step gated by `{publishing_solve_conflicts}`). VERIFYING runs the change against `{acceptance}` to prove it works (skipped via `{skip_verify}`, default ON for non-dev / OFF for dev). Judgment forks auto-resolve via one Opus pass (`{escalation_auto_resolve}`, default on) before parking at NEEDS_REVIEW(question). Token use is metered per stage (`stage_usage` table → `tasks.tokens_used` rollup).
 
 Modes: `dev` (modifies app code → SOLID/DRY/KISS/YAGNI) vs `non-dev` (everything else → CLEAR + DRY + KISS).
 

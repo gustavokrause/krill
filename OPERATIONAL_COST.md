@@ -2,6 +2,8 @@
 
 Each task moving through the pipeline consumes LLM tokens. This doc estimates per-task cost so capacity / budget can be planned.
 
+Actuals are now metered, not just estimated: every Claude CLI spawn writes a `stage_usage` row (input/output/cache tokens + cost_usd), rolled up into `tasks.tokens_used` and surfaced per-task / per-project / today in the UI. Use the meter to correct the ranges below against your real workload.
+
 ## Per stage
 
 | Stage         | Model              | Tokens / pass |
@@ -10,6 +12,8 @@ Each task moving through the pipeline consumes LLM tokens. This doc estimates pe
 | PLANNING      | Opus               | 30-80k        |
 | IMPLEMENTING  | Sonnet             | 100-500k      |
 | AI-REVIEW     | Opus               | 20-50k        |
+| VERIFYING     | Sonnet (skipped when `{skip_verify}`; default ON non-dev / OFF dev) | 20-80k per pass (runs the change) |
+| escalation resolver | Opus (gated by `{escalation_auto_resolve}`; metered under `ai_review`) | 10-40k per fork |
 | PUBLISHING    | none (happy path)  | 0             |
 | PUBLISHING — conflict resolver | Sonnet (gated by `{publishing_solve_conflicts}`) | 10-30k per conflict pass |
 | NEEDS_REVIEW(conflict) — "Solve with Sonnet" CTA (per click) | Sonnet | 10-30k per click (same as auto path; brake counter NOT incremented) |
@@ -36,6 +40,8 @@ Each task moving through the pipeline consumes LLM tokens. This doc estimates pe
 - `skip_plan=true` for one-liner tasks → bypass plan-writing.
 - `skip_plan_review=true` → auto-approve plan; saves the human gate.
 - `skip_ai_review=true` for trivial tasks → bypass AI-REVIEW (saves Opus call).
+- `skip_verify=true` → bypass VERIFYING (saves a Sonnet run). Auto-on for non-dev and docs-only diffs.
+- VERIFYING runs on Sonnet (not Opus) as a measured-cost A/B — keeps the prove-it-runs stage cheap.
 - Tight `{affected_paths}` scope → less file IO during IMPLEMENTING.
 - Set `{max_parallel_tasks}` per project to throttle burn rate.
 - `{publishing_solve_conflicts}=false` → zero LLM tokens at PUBLISHING regardless of conflicts (human resolves in GitHub, or opts in per-task via the "Solve with Sonnet" CTA on NEEDS_REVIEW(conflict)).

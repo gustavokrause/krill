@@ -19,7 +19,9 @@ AI + HUMAN WORKFLOW
 
   {api_error_backoff} # per-stage exponential backoff on API errors; sequence: 30s, 60s, 120s, cap 300s; reset on first success; isolated per-stage.
 
-  {max_ai_decline_cycles} # int — caps AI-driven decline/conflict loops; default 3. After N consecutive AI auto-actions (without human input or forward state progress), AI force-moves task to NEEDS_REVIEW(conflict). Manual "Solve with Sonnet" CTA runs are excluded from the count (marked with the `[manual] ` comment prefix).
+  {max_ai_decline_cycles} # int — caps AI-driven decline/conflict/verify loops; default 3. After N consecutive AI auto-actions (without human input or forward state progress), AI force-parks the task at NEEDS_REVIEW with the kind that fits the stage: "declined" (AI-REVIEW), "verify" (VERIFYING no-verdict), or "conflict" (PUBLISHING). Manual "Solve with Sonnet" CTA runs are excluded from the count (marked with the `[manual] ` comment prefix).
+
+  {escalation_auto_resolve} # bool — default true. When a stage hits a judgment fork it cannot resolve headless, it records an {escalation} and, if this is on, one higher-effort Opus pass attempts to resolve it before parking for a human. Off → escalations go straight to NEEDS_REVIEW(question). The resolver run is metered under stage "ai_review" (shares that model).
 
 -- PROJECTS --
 
@@ -33,6 +35,15 @@ AI + HUMAN WORKFLOW
     {max_parallel_tasks} # cap on active tasks per project; default 1; range 1-5
     {paused} # bool — pause this project without affecting others; default false
 
+    # Publish policy (A1). NULL = auto-detect from whether a git remote exists (remote → PR flow; no remote → local merge). Non-null overrides detection. Tasks may override each per-task (see TASKS).
+    {create_pr} # bool | null — open a PR. NULL = auto.
+    {push_remote} # bool | null — master switch. on → PR/remote flow; off → local merge only. NULL = auto.
+    {merge_to_main} # bool | null — on → approve/auto-finish merges; off → krill NEVER merges (you merge yourself; approve just marks DONE). NULL = auto.
+    {draft_pr} # bool — open PRs as drafts (`gh pr create --draft`); default false. Auto-finish suppressed while draft.
+    {delete_branch_on_done} # bool — delete the task branch (local+remote) on DONE, but only when actually merged; default true.
+    {allow_auto_finish} # bool — project-side half of the A2 auto-finish gate; must be true for a task's {auto_publish} to be honored; default false.
+    {pr_description_source} # enum: "plan" | "summary"; default "plan". Picks which field fills the PR body — the full {plan} or the short {plan_summary}.
+
 -- TASKS --
 
   Fields overview
@@ -44,7 +55,9 @@ AI + HUMAN WORKFLOW
     {priority} # enum: "P0" | "P1" | "P2" | "P3"; default "P2". P0=critical/blocker, P1=high, P2=medium/normal, P3=low/nice-to-have. Picker orders ASC ("P0" lexicographically smallest, picked first).
 
     {plan}
+    {plan_summary} # short summary of the plan, written by PLANNING via an MCP tool (task_set_plan_summary / task_set_plan_bundle). Shown above the plan in the Plan tab; can fill the PR body when project.{pr_description_source}="summary". Default "".
     {checklist}
+    {acceptance} # text | null — definition-of-done the VERIFYING stage checks the change against. Set at task creation, or written by PLANNING when left blank. NULL → VERIFYING falls back to {plan} + {checklist}.
 
     {created_at}
     {started_at}
@@ -57,10 +70,11 @@ AI + HUMAN WORKFLOW
 
     {skip_plan} # bool — when true, the TODO picker routes the task TODO → IMPLEMENTING directly (no PLANNING tick, no plan/checklist, no plan review). Worktree/workspace setup runs lazily at the start of IMPLEMENTING. Use for trivial tasks where the human already supplied enough context. Implies skip_plan_review. Default false.
     {skip_plan_review} # bool — when true, NEEDS_REVIEW(plan) gate is bypassed; plan auto-approves and transitions straight to IMPLEMENTING. Has no effect when skip_plan is also true (no plan exists). Default false.
-    {skip_ai_review} # bool — when true, AI-REVIEW gate is bypassed; after IMPLEMENTING, task jumps directly to PUBLISHING. Use for trivial tasks where AI review is overhead. Default false.
+    {skip_ai_review} # bool — when true, AI-REVIEW gate is bypassed; after IMPLEMENTING, task jumps directly to VERIFYING. Use for trivial tasks where AI review is overhead. Default false.
+    {skip_verify} # bool — when true, the VERIFYING stage is bypassed; task routes straight to PUBLISHING. Default is mode-derived at creation: ON for non-dev (nothing to run), OFF for dev (prove the change runs). Also auto-set true during IMPLEMENTING when the whole diff is docs-only.
 
-    {status} # enum: BACKLOG | TODO | PLANNING | IMPLEMENTING | AI-REVIEW | PUBLISHING | NEEDS_REVIEW | DONE | CANCELED
-    {pending_review_kind} # enum: "plan" | "deliverable" | "conflict" | null — set iff status=NEEDS_REVIEW; discriminates which review gate the task is parked on. Cleared on every NEEDS_REVIEW exit.
+    {status} # enum: BACKLOG | TODO | PLANNING | IMPLEMENTING | AI-REVIEW | VERIFYING | PUBLISHING | NEEDS_REVIEW | DONE | CANCELED
+    {pending_review_kind} # enum: "plan" | "deliverable" | "conflict" | "empty" | "verify" | "question" | "declined" | null — set iff status=NEEDS_REVIEW; discriminates which review gate the task is parked on. Cleared on every NEEDS_REVIEW exit. (empty=no commits to ship; verify=VERIFYING couldn't prove acceptance; question=unresolved judgment fork; declined=AI-REVIEW rejected past the brake.)
 
     {depends_on} # [task_id, ...] hard deps only; cross-project allowed; default []
     {conflicts_with} # [task_id, ...] tasks that must not be active in parallel; AI proposes at PLANNING from {affected_paths} overlap, human override is sticky; default []
@@ -75,6 +89,16 @@ AI + HUMAN WORKFLOW
     {mode} # enum: "dev" | "non-dev". "dev" = task modifies the app/codebase. "non-dev" = anything else (research, decisions, docs, copy, strategy, ops, etc.). Shapes prompt direction at PLANNING + IMPLEMENTING + AI-REVIEW. REJECT task creation if mode="dev" and project has_repo=false (impossible state).
     {delivery_url} # PR URL when has_repo=true with a remote; `local:<branch>` for the local-merge path (remote-less repo, A1); file/folder link when has_repo=false
     {auto_publish} # bool (A2) — when true AND project.allow_auto_finish=true, PUBLISHING skips the deliverable gate and merges straight to DONE. Double-gated; AI-REVIEW still runs. Default false. Set by the whale strategy layer.
+
+    {create_pr} / {push_remote} / {merge_to_main} / {draft_pr} # bool | null per-task publish-policy overrides. NULL = inherit the project setting (which may itself be NULL = auto-detect from the repo remote). Same semantics as the project fields.
+
+    {escalation} # JSON | null — open escalation record when a stage hit a judgment fork it couldn't resolve: { question, options[], evidence, origin_stage, resolver_tried, decision?, needs_human? }. NULL = no open escalation. Cleared when resolved (auto or human).
+    {blocked} # bool — paused on an interactive block the headless runner can't answer (MCP auth / CLI login). The picker/claim skips blocked tasks; resolving the {blocker} clears it. Default false.
+
+    {est_tokens} # int | null — whale's pre-flight token estimate, set at push; NULL = no estimate.
+    {tokens_used} # int — running sum of every stage_usage row for this task (input+output+cache tokens). Denormalized rollup so the board reads it without a join. Default 0.
+
+    {claim_gen} # string | null — boot id of the process that holds the current claim. When it no longer matches the running process's boot id, that worker died (orphaned claim); the task is stranded until the claim TTL lapses. Surfaced in the UI as "worker dead" with a manual Recover.
 
 
   WORKFLOW:
@@ -141,9 +165,11 @@ AI + HUMAN WORKFLOW
               {ELSE}
                 - refresh {affected_paths} via recursive scan of {workspace_path} (overwrites prediction with ground truth)
               {IF skip_ai_review}
-                - move to status "PUBLISHING" (bypass AI-REVIEW gate; trivial tasks)
+                - move to status "VERIFYING" (bypass AI-REVIEW gate; trivial tasks)
               {ELSE}
                 - move to status "AI-REVIEW"
+              # (VERIFYING is itself skipped when {skip_verify}=true → straight to PUBLISHING; see the VERIFYING stage and {skip_verify}.)
+              # If IMPLEMENTING produced no commits / nothing to ship, the task parks at NEEDS_REVIEW(empty) instead of advancing.
               - output
                 - task implemented moved to next status
                 - follow up and updates goes into the {checklist}
@@ -159,12 +185,24 @@ AI + HUMAN WORKFLOW
               {ELSE} # mode=="non-dev"
                 evaluate against: CLEAR (Complete, Legible, Exact, Actionable, Relevant) + DRY + KISS
               {IF approved}
-                - move to status "PUBLISHING"
+                - move to status "VERIFYING" (or straight to "PUBLISHING" when {skip_verify}=true)
               {ELSE IF ai_auto_actions(task) >= max_ai_decline_cycles}
                 - append comment ({stage: "AI-REVIEW", author: "ai", text: "max AI decline cycles reached — deferring to human"})
-                - force-move to status "PUBLISHING" (PR will be created so human reviews tangible artifact + all decline comments)
+                - force-move to status "NEEDS_REVIEW" with {pending_review_kind}="declined" (deliverable EXISTS but was rejected; human redirects to IMPLEMENTING or ships it)
               {ELSE}
                 - AI appends comment ({stage: "AI-REVIEW", author: "ai", text: <decline reason>}) → move back to status "IMPLEMENTING"
+
+    - VERIFYING (skipped entirely when {skip_verify}=true → AI-REVIEW/IMPLEMENTING moves straight to PUBLISHING)
+      - Sonnet cron (measured cost A/B — Opus stays on the static-reasoning stages; revert if it misses failures)
+        - AI picks
+          - runs the change inside {worktree_path}/{workspace_path} to PROVE it meets {acceptance} (falls back to {plan} + {checklist} when {acceptance} is null). NEVER edits code — observe-and-compare only.
+          {IF verdict = pass} (task_verify MCP call)
+            - move to status "PUBLISHING"
+          {ELSE IF verdict = fail}
+            - append decline comment → move back to status "IMPLEMENTING" (cheap bounce to redo)
+          {ELSE no verdict (timeout / crash / no tool call)}
+            - append a `[verify-incomplete]` marker comment; release claim for next tick retry
+            - once incomplete-verify markers in this episode (since {stage_entered_at}) reach {max_ai_decline_cycles}: force-move to NEEDS_REVIEW with {pending_review_kind}="verify" and pause the line for a human
     - PUBLISHING:
       - Publish policy: {create_pr}/{push_remote}/{merge_to_main}/{draft_pr} resolve per-task → per-project → auto (repo remote). {push_remote} is the master switch (on → PR flow; off → local). {create_pr}=off + push on → push the branch with NO PR ({delivery_url}=`branch:<name>`), direct-to-main on finish. {merge_to_main}=off → krill NEVER merges (approve marks DONE; you merge the PR/branch yourself). {draft_pr} → open a draft (auto-finish suppressed; approve runs `gh pr ready` then squash-merges). {delete_branch_on_done} removes the branch once actually merged.
       - Auto-finish (A2): if {auto_publish}=true AND project {allow_auto_finish}=true, after a clean merge the deliverable gate is SKIPPED and the task goes straight to DONE (no NEEDS_REVIEW(deliverable)). Remote-less repos merge locally and set {delivery_url}=`local:<branch>`. AI-REVIEW still ran upstream. SUPPRESSED when {merge_to_main}=off, the PR is a draft, or push-off would leave a remote behind. If not eligible, the normal deliverable gate below applies. A3 circuit breaker: ≥2 (or ≥30%/1h) auto-finish failures pauses the project; declining cascade-cancels dependents.
@@ -220,6 +258,10 @@ AI + HUMAN WORKFLOW
         - "plan" — entered from PLANNING. Human approves → IMPLEMENTING, declines → PLANNING (with comment), or sends BACKLOG / CANCELED.
         - "deliverable" — entered from PUBLISHING after clean merge (has_repo=true) or workspace publish (has_repo=false). Human approves → DONE (triggers PR squash-merge when has_repo=true; non-repo just marks DONE), declines → IMPLEMENTING (with comment), or sends BACKLOG / CANCELED.
         - "conflict" — entered from PUBLISHING after a merge conflict that the auto path could not (or was not allowed to) resolve. Has_repo=true only. Human can: Retry PUBLISHING (re-runs the deterministic merge step; idempotent pre-merge reset picks up any human-side GitHub resolution); Solve with Sonnet (per-task CTA, hidden when global {publishing_solve_conflicts}=true since the auto path is already handling it — runs the same Sonnet sub-step the cron would run, without incrementing the brake counter); send to IMPLEMENTING for a redo; or BACKLOG / CANCELED.
+        - "empty" — entered from IMPLEMENTING when it produced no commits / nothing to ship. No artifact to approve-and-merge; human re-runs IMPLEMENTING or cancels. Keeps a no-op task from masquerading as a deliverable.
+        - "verify" — entered from VERIFYING when it couldn't reach a verdict after {max_ai_decline_cycles} incomplete runs. Human investigates; sends back to IMPLEMENTING to redo, or overrides straight to PUBLISHING.
+        - "declined" — entered from AI-REVIEW when it rejected the change past the brake. The deliverable EXISTS but was rejected (distinct from "deliverable" = approved-pending-merge). Human redirects to IMPLEMENTING or ships it anyway.
+        - "question" — entered when a stage hit a judgment fork it couldn't resolve and the {escalation_auto_resolve} Opus pass also deferred (or was off). The {escalation} record holds the question + options; the human's pick clears it and resumes the origin stage.
       - Worktree + workspace are RETAINED across all NEEDS_REVIEW kinds (decline/retry is cheap).
       - {pending_review_kind} is cleared on every NEEDS_REVIEW exit.
       - Human-decline comments are tagged stage=NEEDS_REVIEW; for kinds where a PR exists, the comment is also posted to the PR.
@@ -241,10 +283,10 @@ AI + HUMAN WORKFLOW
   - AI-driven loop brake (gap 9): `ai_auto_actions(task)` = count of {comments} with author='ai' since the most recent of (any human comment) OR (forward state transition toward DONE), EXCLUDING comments prefixed with the manual-CTA marker `[manual] ` (human-triggered "Solve with Sonnet" runs must not inflate the counter). If `ai_auto_actions >= max_ai_decline_cycles` (default 3), AI MUST NOT make another auto-decline/conflict-failure decision; it force-moves the task to NEEDS_REVIEW(conflict) (creating the PR first if it does not yet exist). Human-driven loops (NEEDS_REVIEW declines, retries) are NOT capped — humans self-regulate.
   - Concurrency model: many projects run in parallel; tasks within a project run in parallel up to {max_parallel_tasks}, isolated by per-task git worktree + branch. Convergence happens at PUBLISHING via merge-into.
   - Status sets (four intent-named constants in schema; each consumer uses the one that fits its question):
-    - WORKTREE_RETAINED_STATUSES = {PLANNING, IMPLEMENTING, AI-REVIEW, PUBLISHING, NEEDS_REVIEW} — cleanup gate; worktree/workspace destroyed only on exit from this set.
-    - PARALLEL_SLOT_STATUSES = {PLANNING, IMPLEMENTING, AI-REVIEW, PUBLISHING} — counted against {max_parallel_tasks}; NEEDS_REVIEW does NOT occupy a slot (frees it during human review).
-    - CONFLICTS_BLOCKING_STATUSES = {PLANNING, IMPLEMENTING, AI-REVIEW, PUBLISHING, NEEDS_REVIEW} — peer-check for {conflicts_with} + MCP affected_paths peer queries; NEEDS_REVIEW still blocks dependents.
-    - STUCK_WATCHED_STATUSES = {PLANNING, IMPLEMENTING, AI-REVIEW, PUBLISHING} — stuck-task scanner; NEEDS_REVIEW is human-parked and exempt.
+    - WORKTREE_RETAINED_STATUSES = {PLANNING, IMPLEMENTING, AI-REVIEW, VERIFYING, PUBLISHING, NEEDS_REVIEW} — cleanup gate; worktree/workspace destroyed only on exit from this set.
+    - PARALLEL_SLOT_STATUSES = {PLANNING, IMPLEMENTING, AI-REVIEW, VERIFYING, PUBLISHING} — counted against {max_parallel_tasks}; NEEDS_REVIEW does NOT occupy a slot (frees it during human review).
+    - CONFLICTS_BLOCKING_STATUSES = {PLANNING, IMPLEMENTING, AI-REVIEW, VERIFYING, PUBLISHING, NEEDS_REVIEW} — peer-check for {conflicts_with} + MCP affected_paths peer queries; NEEDS_REVIEW still blocks dependents.
+    - STUCK_WATCHED_STATUSES = {PLANNING, IMPLEMENTING, AI-REVIEW, VERIFYING, PUBLISHING} — stuck-task scanner; NEEDS_REVIEW is human-parked and exempt.
   - Worktree lifecycle (has_repo=true): created at PLANNING start (first entry only), destroyed on every exit from active states (DONE, cancel, decline-back-to-BACKLOG). Branch is kept until DONE/cancel — pause/resume re-creates worktree from branch HEAD cheaply.
   - Task workspace lifecycle (has_repo=false): {workspace_path}={folder_path}/.tasks/{id}/ created at PLANNING start, destroyed at PUBLISHING (after publish) or on cancel/decline-back-to-BACKLOG.
   - {conflicts_with}: AI proposes at PLANNING from {affected_paths} overlap with active peers. Human edits are sticky — AI must not overwrite human-set entries on re-plan.

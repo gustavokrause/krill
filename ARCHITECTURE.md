@@ -72,19 +72,29 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
   │   │   └── client.ts
   │   ├── workflow/
   │   │   ├── cron.ts          # node-cron registration + tick dispatch
+  │   │   ├── tick.ts          # per-stage tick (claim → handler → release)
   │   │   ├── claim.ts         # atomic claim + transition primitives
+  │   │   ├── transition.ts    # legal status transitions + pending_review_kind invariant
   │   │   ├── eligibility.ts   # deps + conflicts + max_parallel filter
+  │   │   ├── escalation.ts    # judgment-fork auto-resolver (Opus); parks NEEDS_REVIEW(question)
+  │   │   ├── loop-brake.ts    # ai_auto_actions counter + max_ai_decline_cycles
+  │   │   ├── blockers.ts      # unblock queue (MCP auth / CLI login)
+  │   │   ├── followups.ts     # krill → whale follow-up feedback
+  │   │   ├── boot-id.ts       # process boot id for orphaned-claim recovery
   │   │   ├── stuck.ts         # stuck-task detection job
   │   │   └── stages/
   │   │       ├── todo-picker.ts
   │   │       ├── planning.ts
   │   │       ├── implementing.ts
   │   │       ├── ai-review.ts
+  │   │       ├── verify.ts    # VERIFYING: run the change, prove acceptance (Sonnet)
   │   │       └── publishing.ts
   │   ├── claude/
   │   │   ├── runner.ts        # spawn `claude` subprocess
+  │   │   ├── model-map.ts     # MODEL_BY_STAGE (per-stage model id)
+  │   │   ├── usage.ts         # record per-stage token usage → stage_usage + tasks.tokens_used
   │   │   ├── mcp-server.ts    # MCP tools exposed to Claude
-  │   │   └── prompts/         # per-stage prompts (dev + non-dev variants)
+  │   │   └── prompts/         # per-stage prompts (dev + non-dev variants; verify-*, resolve)
   │   ├── git/
   │   │   ├── worktree.ts      # create / destroy worktrees
   │   │   ├── branch.ts        # create / push branches
@@ -93,6 +103,9 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
   │   ├── lib/
   │   │   ├── sse.ts           # SSE broadcaster (in-memory pub/sub)
   │   │   ├── logger.ts
+  │   │   ├── usage-rollups.ts # per-task / per-project / today token rollups
+  │   │   ├── tool-log.ts      # per-MCP-tool-call instrument (tool_calls table)
+  │   │   ├── health.ts        # stuck/blocked/orphaned-claim + tokens-today health query
   │   │   └── config.ts        # global config reader/writer
   │   └── types/
   └── data/
@@ -110,6 +123,8 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
     - claim_ttl (json)
     - backoff (json)
     - max_ai_decline_cycles
+    - publishing_solve_conflicts (bool)
+    - escalation_auto_resolve (bool, default true)
 
   projects
     - id (uuid)
@@ -119,22 +134,32 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
     - default_branch
     - max_parallel_tasks
     - paused
+    - create_pr, push_remote, merge_to_main (bool|null — publish policy; null = auto-detect from remote)
+    - draft_pr (bool), delete_branch_on_done (bool), allow_auto_finish (bool)
+    - pr_description_source (enum: "plan" | "summary", default "plan")
 
   tasks
     - id (string, "{slug}-{N}")
     - project_id (fk)
     - name, description
     - priority (enum: "P0" | "P1" | "P2" | "P3", default "P2")
-    - status (enum)
+    - status (enum, includes VERIFYING)
+    - pending_review_kind (enum|null: plan | deliverable | conflict | empty | verify | question | declined; non-null iff status=NEEDS_REVIEW)
     - mode ("dev" | "non-dev")
-    - plan, checklist (text)
+    - plan, plan_summary, checklist (text)
+    - acceptance (text|null — definition-of-done for VERIFYING; null falls back to plan+checklist)
     - depends_on (json array of task ids)
     - conflicts_with (json array)
     - affected_paths (json array)
     - branch, worktree_path, workspace_path
     - delivery_url
-    - skip_plan, skip_plan_review, skip_ai_review
-    - claimed_until, claimed_by
+    - skip_plan, skip_plan_review, skip_ai_review, skip_verify (bool)
+    - auto_publish (bool)
+    - create_pr, push_remote, merge_to_main, draft_pr (bool|null — per-task publish-policy overrides)
+    - escalation (json|null — open judgment-fork record)
+    - blocked (bool — paused on an interactive block)
+    - est_tokens (int|null), tokens_used (int — running sum of stage_usage)
+    - claimed_until, claimed_by, claim_gen (boot id for orphaned-claim recovery)
     - created_at, started_at, stage_entered_at, updated_at, ended_at
 
   comments (append-only)
@@ -145,10 +170,26 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
     - author ("human" | "ai")
     - text (text)
 
+  stage_usage (append-only token meter — one row per claude CLI spawn)
+    - id, task_id (fk), project_id (denormalized), stage, model
+    - input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens
+    - cost_usd, num_turns, duration_ms, created_at
+    - (escalation-resolver runs are recorded under stage "ai_review")
+
+  tool_calls (append-only — one row per krill MCP tool call; shows the bookkeeping share of a stage's turns)
+
+  blockers (unblock queue)
+    - id, source, kind (mcp_auth | cli_login | permission | other), status (open | resolved | dismissed)
+    - task_id, stage, summary, detail, action_url, created_at, resolved_at
+
+  followups (krill → whale feedback — out-of-scope work a stage noticed but didn't do)
+    - id, task_id, project_id, title, description, status (open | consumed), created_at, consumed_at
+
   Indexes:
     - tasks(status, claimed_until) for claim queries
     - tasks(project_id, status) for project active count
     - comments(task_id, at)
+    - stage_usage(task_id), stage_usage(project_id), stage_usage(created_at) for token rollups
 
 
 -- ATOMIC CLAIM (primitive) --
@@ -222,7 +263,7 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
 
   ```ts
   spawn('claude', [
-    '--model', MODEL_BY_STAGE[stage],            // claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5-20251001
+    '--model', MODEL_BY_STAGE[stage],            // opus-4-7: PLANNING, AI-REVIEW (+ escalation resolver); sonnet-4-6: IMPLEMENTING, VERIFYING, PUBLISHING conflict resolver
     '--cwd', task.worktree_path || task.workspace_path || project.folder_path,
     '--mcp-config', mcpConfigPath,                // our task MCP server (task_set_plan/decide/…)
     // NOTE: NOT --strict-mcp-config by default — your USER MCP servers (e.g.
@@ -245,12 +286,16 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
 
   - task_context()                       → task, project, plan, checklist, comments, affected_paths, peers' affected_paths, branch state
   - task_set_plan(text)
+  - task_set_plan_summary(text)          → PLANNING writes the short plan summary
+  - task_set_plan_bundle(...)            → PLANNING batches plan + plan_summary + checklist + affected_paths in one call
   - task_set_checklist(text)
   - task_set_affected_paths(paths: string[])
   - task_append_comment(stage, text)
-  - task_decide(outcome: "approve" | "decline", reason?: text)
+  - task_decide(outcome: "approve" | "decline", reason?: text)   → AI-REVIEW
+  - task_verify(verdict: "pass" | "fail", reason?: text)         → VERIFYING
+  - task_resolve(decision)                                       → escalation auto-resolver picks an option
 
-  Each tool validates write authority by stage (e.g., task_decide only valid in AI-REVIEW). Writes are transactional. SSE broadcaster fires on each mutation.
+  Each tool validates write authority by stage (e.g., task_decide only valid in AI-REVIEW, task_verify only in VERIFYING). Writes are transactional. SSE broadcaster fires on each mutation. Per-stage model ids live in `src/claude/model-map.ts` (MODEL_BY_STAGE).
 
 
 -- LIVE UI (SSE) --
