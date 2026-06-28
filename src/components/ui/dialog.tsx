@@ -9,18 +9,29 @@ export const Dialog = RadixDialog.Root;
 export const DialogTrigger = RadixDialog.Trigger;
 export const DialogClose = RadixDialog.Close;
 
-let openDialogCount = 0;
+// Dialog stacking: each open dialog sits one z-band above the previous so a
+// nested dialog's overlay actually dims the dialog beneath it (flat/equal z
+// would let the lower dialog's content paint over the upper dialog's overlay).
+//
+// The level is read live from the DOM — the number of dialog overlays currently
+// mounted — rather than a module counter incremented/decremented per mount. A
+// counter leaks when cleanup doesn't fire (route-interception / StrictMode
+// remounts), climbing unbounded over a session until dialog z passes the
+// popover layer and Select/Tooltip options render *under* the overlay. Counting
+// live DOM self-heals: a stale dialog that's already unmounted simply isn't
+// there to count. Bounded well below the popover band (Select/Tooltip,
+// z-[1000]) as defence in depth.
 const BASE_OVERLAY_Z = 40;
 const PER_LEVEL_Z = 20;
+const MAX_STACK_LEVEL = 20; // content z ≤ 430, always under the z-[1000] popovers
 
 function useDialogStackLevel(): number {
   const [level, setLevel] = React.useState(1);
   React.useLayoutEffect(() => {
-    openDialogCount += 1;
-    setLevel(openDialogCount);
-    return () => {
-      openDialogCount -= 1;
-    };
+    // This dialog's overlay is already committed to the DOM by the time the
+    // layout effect runs, so the count includes self → 1-based stack position.
+    const open = document.querySelectorAll("[data-dialog-overlay]").length;
+    setLevel(Math.max(1, Math.min(open, MAX_STACK_LEVEL)));
   }, []);
   return level;
 }
@@ -45,6 +56,7 @@ export function DialogContent({
   return (
     <RadixDialog.Portal>
       <RadixDialog.Overlay
+        data-dialog-overlay=""
         style={{ zIndex: overlayZ }}
         className="fixed inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-[2px]"
       />
