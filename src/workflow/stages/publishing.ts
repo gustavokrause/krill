@@ -549,7 +549,7 @@ async function publishWorkspace(taskId: string): Promise<void> {
   }
 }
 
-function prBody(
+export function prBody(
   taskId: string,
   plan: string,
   planSummary: string,
