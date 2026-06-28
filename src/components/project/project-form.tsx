@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip } from "@/components/ui/tooltip";
-import { Info } from "lucide-react";
+import { Info, RefreshCw } from "lucide-react";
 import { useToast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DialogBody, DialogFooter } from "@/components/ui/dialog";
@@ -64,6 +64,13 @@ export function ProjectForm(props: Mode) {
   );
   const [showLegend, setShowLegend] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Live repo state — seeded from the saved value, refreshable via the
+  // re-detect button against the current (possibly unsaved) folder path.
+  const [repoDetected, setRepoDetected] = useState(existing?.has_repo ?? false);
+  const [detecting, setDetecting] = useState(false);
+  // Only override has_repo on save once the user manually re-detects; otherwise
+  // leave it to the server (auto-detects on folder change, keeps it otherwise).
+  const [repoTouched, setRepoTouched] = useState(false);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,6 +81,7 @@ export function ProjectForm(props: Mode) {
           name,
           slug,
           folder_path: folder,
+          ...(repoTouched ? { has_repo: repoDetected } : {}),
           max_parallel_tasks: maxParallel,
           paused,
         };
@@ -95,6 +103,7 @@ export function ProjectForm(props: Mode) {
         const body: Record<string, unknown> = {
           name,
           folder_path: folder,
+          ...(repoTouched ? { has_repo: repoDetected } : {}),
           default_branch: defaultBranch,
           max_parallel_tasks: maxParallel,
           paused,
@@ -147,8 +156,41 @@ export function ProjectForm(props: Mode) {
     }
   };
 
+  const onDetect = async () => {
+    if (!folder.trim()) {
+      toast.push({ variant: "danger", title: "Enter a folder path first" });
+      return;
+    }
+    setDetecting(true);
+    try {
+      const r = await api.detectRepo(folder.trim());
+      setRepoDetected(r.has_repo);
+      setRepoTouched(true);
+      // Fill a blank default branch from the detected repo as a convenience.
+      if (r.has_repo && !defaultBranch.trim() && r.default_branch) {
+        setDefaultBranch(r.default_branch);
+      }
+      toast.push({
+        variant: r.has_repo ? "success" : "warning",
+        title: r.has_repo ? "Repo detected" : "No repo at this path",
+        description:
+          r.has_repo && r.default_branch
+            ? `default branch: ${r.default_branch}`
+            : undefined,
+      });
+    } catch (err) {
+      toast.push({
+        variant: "danger",
+        title: "Detect failed",
+        description: (err as Error).message,
+      });
+    } finally {
+      setDetecting(false);
+    }
+  };
+
   // Effective repo state + which policy dials are inert given the others.
-  const isRepo = existing?.has_repo ?? false;
+  const isRepo = repoDetected;
   const pushOff = pushRemote === false;
   const prOff = createPr === false;
   const mergeOff = mergeToMain === false;
@@ -212,12 +254,32 @@ export function ProjectForm(props: Mode) {
         required
         helper="Absolute path on this machine. Deliverables land here."
       >
-        <Input
-          value={folder}
-          onChange={(e) => setFolder(e.target.value)}
-          required
-          className="font-mono"
-        />
+        <div className="flex items-center gap-2">
+          <Input
+            value={folder}
+            onChange={(e) => setFolder(e.target.value)}
+            required
+            className="font-mono flex-1"
+          />
+          <Tooltip
+            title="Re-detect git repo"
+            description="Re-runs .git auto-detection at this path."
+          >
+            <Button
+              type="button"
+              variant="neutral"
+              onClick={onDetect}
+              disabled={detecting}
+              aria-label="Re-detect git repo"
+              className="px-3 shrink-0"
+            >
+              <RefreshCw
+                size={16}
+                className={detecting ? "animate-spin" : undefined}
+              />
+            </Button>
+          </Tooltip>
+        </div>
       </Field>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-8 border-t border-border pt-4">

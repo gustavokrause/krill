@@ -94,6 +94,11 @@ export const api = {
     }).then((r) => r.project),
   deleteProject: (id: string) =>
     jsonFetch<void>(`/api/projects/${id}`, { method: "DELETE" }),
+  detectRepo: (folder_path: string) =>
+    jsonFetch<{ has_repo: boolean; default_branch: string | null }>(
+      "/api/projects/detect-repo",
+      { method: "POST", body: JSON.stringify({ folder_path }) },
+    ),
 
   listTasks: (params?: { status?: TaskStatus; project_id?: string }) => {
     const q = new URLSearchParams();

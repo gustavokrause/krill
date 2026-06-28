@@ -34,6 +34,10 @@ export const projectPatchSchema = projectCreateSchema
   .partial()
   .omit({ slug: true });
 
+export const repoDetectSchema = z.object({
+  folder_path: z.string().min(1),
+});
+
 export const taskCreateSchema = z.object({
   project_id: z.string().min(1),
   name: z.string().min(1).max(200),
