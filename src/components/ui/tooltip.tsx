@@ -60,7 +60,7 @@ export function Tooltip({
           align={align}
           sideOffset={sideOffset}
           className={cn(
-            "z-50 max-w-[240px] rounded border border-border bg-surface px-2 py-1.5 text-xs text-text shadow-md",
+            "z-[1000] max-w-[240px] rounded border border-border bg-surface px-2 py-1.5 text-xs text-text shadow-md",
             contentClassName,
           )}
         >

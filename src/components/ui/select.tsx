@@ -42,7 +42,9 @@ export function SelectContent({
       <RadixSelect.Content
         position="popper"
         className={cn(
-          "z-[100] min-w-[var(--radix-select-trigger-width)] rounded border border-border bg-surface text-text",
+          // Popover band — above the dialog stack (see dialog.tsx, content z ≤
+          // 430) so options never render under a dialog overlay inside a modal.
+          "z-[1000] min-w-[var(--radix-select-trigger-width)] rounded border border-border bg-surface text-text",
           "pointer-events-auto outline-none",
           className,
         )}
