@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { projects } from "@/db/schema";
@@ -12,7 +12,7 @@ type Ctx = { params: Promise<{ id: string }> };
 export default async function ProjectEditPage({ params }: Ctx) {
   const { id } = await params;
   const project = db.select().from(projects).where(eq(projects.id, id)).get();
-  if (!project) notFound();
+  if (!project) redirect("/projects");
 
   return (
     <main className="flex-1 px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
