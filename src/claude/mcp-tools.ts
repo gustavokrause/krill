@@ -167,10 +167,27 @@ function emitTaskUpdated(taskId: string): void {
   if (task) broadcast({ type: "task.updated", task });
 }
 
+// A planning model occasionally malforms its task_set_plan_bundle call —
+// closing a parameter with a field-named tag (`</plan>`) instead of
+// `</parameter>`, so the CLI parser swallows the sibling parameters into the
+// first field as raw tool-call XML. That markup then renders as garbage in the
+// PR body (prBody) and the plan/checklist UI. Cut the value at the first leaked
+// scaffold marker — a field-named close, a `<parameter name=`, or a
+// `<function_calls>`/`<invoke>` wrapper — none of which belong in a stored
+// plan/summary/checklist. Deliberately conservative: only these exact tool-call
+// markers, never arbitrary `<...>` (legit dev-mode plans contain code/JSX).
+const SCAFFOLD_LEAK_RE =
+  /<\/(?:plan|plan_summary|checklist|acceptance)>|<parameter\s+name=|<\/parameter>|<\/?function_calls>|<\/?invoke\b/i;
+
+export function stripToolScaffold(value: string): string {
+  const m = value.match(SCAFFOLD_LEAK_RE);
+  return (m ? value.slice(0, m.index) : value).trimEnd();
+}
+
 export function task_set_plan(ctx: McpAuthContext, plan: string) {
   authorize(ctx, "task_set_plan");
   db.update(tasks)
-    .set({ plan, updated_at: now() })
+    .set({ plan: stripToolScaffold(plan), updated_at: now() })
     .where(eq(tasks.id, ctx.taskId))
     .run();
   emitTaskUpdated(ctx.taskId);
@@ -186,7 +203,7 @@ export function task_set_plan(ctx: McpAuthContext, plan: string) {
 export function task_set_plan_summary(ctx: McpAuthContext, plan_summary: string) {
   authorize(ctx, "task_set_plan_summary");
   db.update(tasks)
-    .set({ plan_summary, updated_at: now() })
+    .set({ plan_summary: stripToolScaffold(plan_summary), updated_at: now() })
     .where(eq(tasks.id, ctx.taskId))
     .run();
   emitTaskUpdated(ctx.taskId);
@@ -196,7 +213,7 @@ export function task_set_plan_summary(ctx: McpAuthContext, plan_summary: string)
 export function task_set_acceptance(ctx: McpAuthContext, acceptance: string) {
   authorize(ctx, "task_set_acceptance");
   db.update(tasks)
-    .set({ acceptance, updated_at: now() })
+    .set({ acceptance: stripToolScaffold(acceptance), updated_at: now() })
     .where(eq(tasks.id, ctx.taskId))
     .run();
   emitTaskUpdated(ctx.taskId);
@@ -206,7 +223,7 @@ export function task_set_acceptance(ctx: McpAuthContext, acceptance: string) {
 export function task_set_checklist(ctx: McpAuthContext, checklist: string) {
   authorize(ctx, "task_set_checklist");
   db.update(tasks)
-    .set({ checklist, updated_at: now() })
+    .set({ checklist: stripToolScaffold(checklist), updated_at: now() })
     .where(eq(tasks.id, ctx.taskId))
     .run();
   emitTaskUpdated(ctx.taskId);
