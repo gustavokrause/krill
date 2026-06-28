@@ -7,6 +7,7 @@ import { comments, tasks } from "@/db/schema";
 import { pauseLineForHuman } from "../blockers";
 import { claim } from "../claim";
 import { appendAiComment } from "../comment";
+import { repoMissingBlock } from "../preflight";
 import { getMaxAiDeclineCycles } from "../loop-brake";
 import { releaseClaim, transitionStatus } from "../transition";
 import {
@@ -42,6 +43,12 @@ export async function runVerify(workerId: string): Promise<string | null> {
   if (!task) return null;
 
   const project = getProject(task.project_id);
+
+  // Repo gone (moved/deleted) → block + release instead of looping on git errors.
+  if (repoMissingBlock({ task, project, stage: "VERIFYING", workerId })) {
+    return task.id;
+  }
+
   const cwd = task.worktree_path ?? task.workspace_path;
   if (!cwd) {
     releaseClaim(task.id, workerId);

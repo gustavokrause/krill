@@ -10,6 +10,7 @@ import { commitAll, diffNamesAgainstBase, pushBranch } from "@/git";
 import { claim } from "../claim";
 import { applyTransitionSideEffects } from "../cleanup";
 import { appendAiComment } from "../comment";
+import { repoMissingBlock } from "../preflight";
 import { releaseClaim, transitionStatus } from "../transition";
 import { now } from "../types";
 import {
@@ -29,6 +30,11 @@ export async function runImplementing(
   if (!task) return null;
 
   const project = getProject(task.project_id);
+
+  // Repo gone (moved/deleted) → block + release instead of looping on git errors.
+  if (repoMissingBlock({ task, project, stage: "IMPLEMENTING", workerId })) {
+    return task.id;
+  }
 
   // Task may arrive here without a workspace if the picker routed
   // skip_plan=true straight from TODO, or if a human manually advanced
@@ -68,6 +74,12 @@ export async function runImplementing(
       throw err;
     }
 
+    // Post-runStage git + transition. Any throw here (commitAll/diff on a broken
+    // worktree, a transition side-effect) must release the claim before it
+    // escapes — the generic tick catch has no taskId to release with, so an
+    // unreleased claim sits held for the full TTL and the task re-claims and
+    // re-throws every cycle (a stuck loop). Release, then rethrow for backoff.
+    try {
     if (project.has_repo && task.worktree_path && task.branch) {
       const message = `${task.id}: ${task.name}`;
       const sha = await commitAll(task.worktree_path, message);
@@ -157,6 +169,10 @@ export async function runImplementing(
       releaseClaim(task.id, workerId);
     }
     return task.id;
+    } catch (err) {
+      releaseClaim(task.id, workerId);
+      throw err;
+    }
   } finally {
     revokeToken(token);
   }

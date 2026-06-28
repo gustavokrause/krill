@@ -3,6 +3,7 @@ import { TimeoutError } from "@/claude/errors";
 import { issueToken, revokeToken } from "@/claude/mcp-auth";
 import { claim } from "../claim";
 import { appendAiComment } from "../comment";
+import { repoMissingBlock } from "../preflight";
 import { releaseClaim } from "../transition";
 import {
   getBaseUrl,
@@ -24,6 +25,12 @@ export async function runAiReview(workerId: string): Promise<string | null> {
   if (!task) return null;
 
   const project = getProject(task.project_id);
+
+  // Repo gone (moved/deleted) → block + release instead of looping on git errors.
+  if (repoMissingBlock({ task, project, stage: "AI-REVIEW", workerId })) {
+    return task.id;
+  }
+
   const cwd = task.worktree_path ?? task.workspace_path;
   if (!cwd) {
     releaseClaim(task.id, workerId);
