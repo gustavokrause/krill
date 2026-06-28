@@ -31,6 +31,7 @@ import { resolvePublishPolicy } from "../publish-policy";
 import { finishMerge, autoFinishEligible } from "../finish";
 import { tripAutoFinishBreaker } from "../breaker";
 import { countAiAutoActions, getMaxAiDeclineCycles, MANUAL_AI_COMMENT_PREFIX } from "../loop-brake";
+import { repoMissingBlock } from "../preflight";
 import { releaseClaim, transitionStatus } from "../transition";
 import { now } from "../types";
 import {
@@ -172,6 +173,11 @@ export async function runPublishing(workerId: string): Promise<string | null> {
   if (!task) return null;
 
   const project = getProject(task.project_id);
+
+  // Repo gone (moved/deleted) → block + release instead of looping on git errors.
+  if (repoMissingBlock({ task, project, stage: "PUBLISHING", workerId })) {
+    return task.id;
+  }
 
   try {
     if (project.has_repo) {

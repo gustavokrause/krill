@@ -4,6 +4,7 @@ import { issueToken, revokeToken } from "@/claude/mcp-auth";
 import { claim } from "../claim";
 import { applyTransitionSideEffects } from "../cleanup";
 import { appendAiComment } from "../comment";
+import { repoMissingBlock } from "../preflight";
 import { releaseClaim, transitionStatus } from "../transition";
 import {
   ensureWorkspace,
@@ -20,6 +21,11 @@ export async function runPlanning(workerId: string): Promise<string | null> {
   if (!task) return null;
 
   const project = getProject(task.project_id);
+
+  // Repo gone (moved/deleted) → block + release instead of looping on git errors.
+  if (repoMissingBlock({ task, project, stage: "PLANNING", workerId })) {
+    return task.id;
+  }
 
   try {
     await ensureWorkspace(task, project);
