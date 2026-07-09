@@ -11,9 +11,9 @@ Local app that automates a task pipeline via Claude Code CLI. Single-user, local
 
 ## Workflow at a glance
 
-States: `BACKLOG → TODO → PLANNING → NEEDS_REVIEW(plan) → IMPLEMENTING → AI-REVIEW → VERIFYING → PUBLISHING → NEEDS_REVIEW(deliverable|conflict) → DONE` (plus `CANCELED`). NEEDS_REVIEW is a single status discriminated by `pending_review_kind` (`plan | deliverable | conflict | empty | verify | question | declined`).
+States: `BACKLOG → TODO → PLANNING → NEEDS_REVIEW(plan) → IMPLEMENTING → AI-REVIEW → VERIFYING → PUBLISHING → NEEDS_REVIEW(deliverable|conflict) → DONE` (plus `CANCELED`). NEEDS_REVIEW is a single status discriminated by `pending_review_kind` (`plan | deliverable | conflict | empty | verify | question | declined | stuck`).
 
-Models per stage: deterministic SQL (TODO pick), Opus (PLANNING, AI-REVIEW), Sonnet (IMPLEMENTING, VERIFYING), deterministic (PUBLISHING happy path — LLM-free; Sonnet only on merge-conflict sub-step gated by `{publishing_solve_conflicts}`). VERIFYING runs the change against `{acceptance}` to prove it works (skipped via `{skip_verify}`, default ON for non-dev / OFF for dev). Judgment forks auto-resolve via one Opus pass (`{escalation_auto_resolve}`, default on) before parking at NEEDS_REVIEW(question). Token use is metered per stage (`stage_usage` table → `tasks.tokens_used` rollup).
+Models per stage: deterministic SQL (TODO pick), Opus (PLANNING; AI-REVIEW only once contested — the first review pass of a task runs Sonnet), Sonnet (IMPLEMENTING, VERIFYING, first AI-REVIEW pass, escalation resolver), deterministic (PUBLISHING happy path — LLM-free; Sonnet only on merge-conflict sub-step gated by `{publishing_solve_conflicts}`). VERIFYING runs the change against `{acceptance}` to prove it works (skipped via `{skip_verify}`, default ON for non-dev / OFF for dev; also auto-set by docs-only diffs or a `static_sufficient` AI-REVIEW approve). Judgment forks auto-resolve via one Sonnet resolver pass (`{escalation_auto_resolve}`, default on; skipped past the per-task escalation cap or when no worktree exists) before parking at NEEDS_REVIEW(question). Token use is metered per stage (`stage_usage` table → `tasks.tokens_used` rollup; `model` records what actually ran).
 
 Modes: `dev` (modifies app code → SOLID/DRY/KISS/YAGNI) vs `non-dev` (everything else → CLEAR + DRY + KISS).
 

@@ -14,8 +14,10 @@ evidence beats an exhaustive check that never finishes. Spend the budget
 cheapest-first and stop the moment you have enough to decide. A no-verdict timeout
 is the ONE outcome to avoid — it proves nothing and loops.
 
-1. Call task_context() — read `acceptance` (the bar). If null, fall back to the
-   plan + checklist.
+1. Call task_context() — read `acceptance` (the bar; if null, fall back to the
+   plan + checklist) and `diff` (the unified diff against base, computed at the
+   end of IMPLEMENTING — use it instead of re-running git diff; only if it is
+   null or marked truncated, run `git diff` against base yourself).
 
 2. CHOOSE THE RIGHT RIGOR (proportional verification). Read the DIFF and the
    acceptance, then verify with the LIGHTEST proof that actually covers what this

@@ -63,6 +63,7 @@ const KIND_LABEL: Record<ReviewKind, string> = {
   verify: "verify",
   question: "question",
   declined: "rejected",
+  stuck: "stuck",
 };
 
 const KIND_COLOR: Record<ReviewKind, string> = {
@@ -75,6 +76,8 @@ const KIND_COLOR: Record<ReviewKind, string> = {
   // Rejected by AI-REVIEW — danger, never success. A rejected change must not
   // read like an approved deliverable (the green that caused the bad DONE).
   declined: "bg-danger/10 text-danger border-danger/40",
+  // Stage never concluded — needs human unsticking, same urgency as question.
+  stuck: "bg-danger/10 text-danger border-danger/40",
 };
 
 const TERMINAL = new Set<TaskStatus>(["DONE", "CANCELED"]);

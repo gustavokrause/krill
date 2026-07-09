@@ -1,11 +1,10 @@
 import { and, eq } from "drizzle-orm";
-import { resolve as resolvePath } from "node:path";
 import { db } from "@/db/client";
 import { globalConfig, tasks, type Task } from "@/db/schema";
 import { runStage } from "@/claude/usage";
 import { TimeoutError } from "@/claude/errors";
 import { issueToken, revokeToken } from "@/claude/mcp-auth";
-import { resolveProjectPath } from "@/lib/api/util";
+import { RESOLVER_MODEL } from "@/claude/model-map";
 import { appendAiComment } from "./comment";
 import { pauseLineForHuman } from "./blockers";
 import {
@@ -74,10 +73,29 @@ export async function runEscalationResolver(): Promise<string | null> {
   if (!task) return null;
   const esc = parse(task)!;
   const project = getProject(task.project_id);
-  const cwd =
-    task.worktree_path ??
-    task.workspace_path ??
-    resolveProjectPath(project.folder_path);
+
+  // Never fall back to the live project folder: the resolver spawns a full
+  // Claude run, and outside a worktree nothing stops it mutating real code.
+  // No isolated cwd → this is a human's call.
+  const cwd = task.worktree_path ?? task.workspace_path;
+  if (!cwd) {
+    db.update(tasks)
+      .set({ escalation: JSON.stringify({ ...esc, needs_human: true }), updated_at: now() })
+      .where(eq(tasks.id, task.id))
+      .run();
+    appendAiComment(
+      task.id,
+      `Auto-resolution skipped — no worktree/workspace exists for this task, and the resolver must not run in the live repo. Needs your call.\n\nQuestion: ${esc.question}`,
+      "NEEDS_REVIEW",
+    );
+    pauseLineForHuman({
+      taskId: task.id,
+      stage: esc.origin_stage,
+      summary: `Needs your decision on ${task.id}: ${esc.question}`,
+      detail: esc.evidence,
+    });
+    return task.id;
+  }
 
   const ttl = getClaimTtl("ai_review");
   const token = issueToken(task.id, "ai_review", ttl);
@@ -93,6 +111,7 @@ export async function runEscalationResolver(): Promise<string | null> {
         baseUrl: getBaseUrl(),
         cwd,
         timeoutMs: getRunnerTimeoutMs(ttl),
+        model: RESOLVER_MODEL,
       });
     } catch (err) {
       if (err instanceof TimeoutError) {

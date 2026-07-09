@@ -2,6 +2,7 @@ import type { ScheduledTask } from "node-cron";
 import cron from "node-cron";
 import { runEscalationResolver } from "./escalation";
 import { runStuckScanner } from "./stuck";
+import { runWorktreeGc } from "./worktree-gc";
 import { tick } from "./tick";
 import type { Stage } from "./types";
 
@@ -99,12 +100,28 @@ export function registerCrons(): void {
     }),
   );
 
+  // Orphaned-worktree GC: hourly sweep + one pass shortly after boot (a
+  // restart is exactly when orphans appear — the dying process took its
+  // workers with it). Cheap when there is nothing to remove.
+  s.tasks.push(
+    cron.schedule("40 10 * * * *", () => {
+      void runWorktreeGc().catch((err) =>
+        console.error("[cron:worktree-gc] sweep threw:", err),
+      );
+    }),
+  );
+  setTimeout(() => {
+    void runWorktreeGc().catch((err) =>
+      console.error("[worktree-gc] boot sweep threw:", err),
+    );
+  }, 15_000);
+
   const shutdown = () => { stopCrons(); process.exit(0); };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
 
   console.log(
-    `[cron] registered ${s.tasks.length} schedules (6 stages + stuck scanner + escalation resolver)`,
+    `[cron] registered ${s.tasks.length} schedules (6 stages + stuck scanner + escalation resolver + worktree GC)`,
   );
 }
 

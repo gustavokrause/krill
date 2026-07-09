@@ -57,7 +57,7 @@ function intentFor(
   // NEEDS_REVIEW(deliverable | conflict | empty) → IMPLEMENTING is decline/redo.
   if (
     from === "NEEDS_REVIEW" &&
-    (kind === "deliverable" || kind === "conflict" || kind === "empty" || kind === "verify" || kind === "declined") &&
+    (kind === "deliverable" || kind === "conflict" || kind === "empty" || kind === "verify" || kind === "declined" || kind === "stuck") &&
     to === "IMPLEMENTING"
   ) {
     return "back";
@@ -206,6 +206,11 @@ function nextStatusesFor(task: Task): TaskStatus[] {
           // shelve. CANCELED is reserved for "abandon" since it trips the
           // auto-finish breaker and cascade-cancels dependents.
           return ["DONE", "IMPLEMENTING", "BACKLOG", "CANCELED"];
+        case "stuck":
+          // A stage couldn't conclude at all (no verdict / no progress past the
+          // hard cap). The comments say which stage — send the task back there
+          // after unsticking, or shelve. No DONE: nothing was delivered.
+          return ["PLANNING", "IMPLEMENTING", "AI-REVIEW", "VERIFYING", "PUBLISHING", "BACKLOG", "CANCELED"];
         default:
           return ["BACKLOG", "CANCELED"];
       }
@@ -382,6 +387,15 @@ export function TaskDetail({
         title: "Empty result",
         message:
           "Implementation produced no commits — nothing to ship. Mark DONE if no change was needed, re-run IMPLEMENTING, or cancel.",
+        showSolveWithSonnet: false,
+      };
+    }
+    if (kind === "stuck") {
+      return {
+        kind,
+        title: "Stage couldn't conclude",
+        message:
+          "A stage made no progress past its hard cap or repeatedly produced no verdict — the pipeline parked it instead of looping. Check the comments for which stage and why, unstick the cause (worktree, deps, runner logs), then send the task back to that stage.",
         showSolveWithSonnet: false,
       };
     }

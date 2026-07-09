@@ -164,11 +164,16 @@ curl -X PATCH http://127.0.0.1:3000/api/config -H 'content-type: application/jso
 |---|---|---|---|
 | TODO picker | every 30s (:00/:30) | `claude-haiku-4-5-20251001` (informational; deterministic in code) | Atomic claim + transition TODO→PLANNING |
 | PLANNING | every 60s (:15) | `claude-opus-4-7` | Worktree/workspace setup, write plan + checklist + affected_paths, transition |
-| IMPLEMENTING | every 60s (:45) | `claude-sonnet-4-6` | Code or deliverable edits, commit + push (has_repo) or workspace scan |
-| AI-REVIEW | every 60s (:05) | `claude-opus-4-7` | `task_decide("approve"\|"decline")` — transitions driven by the tool |
+| IMPLEMENTING | every 60s (:45) | `claude-sonnet-4-6` | Code or deliverable edits, commit + push (has_repo) or workspace scan, `diff_text` capture |
+| AI-REVIEW | every 60s (:05) | `claude-sonnet-4-6` first pass; `claude-opus-4-7` once contested (a prior review cycle exists since the last human comment) | `task_decide("approve"\|"decline")` — transitions driven by the tool |
+| VERIFYING | every 60s (:35) | `claude-sonnet-4-6` | `task_verify("pass"\|"fail")` — run the change, prove `acceptance` |
 | PUBLISHING | every 60s (:25) | none in happy path (`claude-sonnet-4-6` only on conflict resolver sub-step, gated by `publishing_solve_conflicts`) | PR-first (`gh pr create` with deterministic title `{task.id}: {task.name}` + body `{plan}`+checklist+IMPLEMENTING comments) → idempotent `git fetch && git reset --hard origin/<branch>` → merge-into → push merge → NEEDS_REVIEW(deliverable) OR (conflict path) Sonnet resolve / force NEEDS_REVIEW(conflict) per toggle + brake |
 
-Stuck scanner runs at `:00` every minute.
+Stuck scanner runs at `:00` every minute: it warns on tasks past
+`max_stage_duration`, force-parks at NEEDS_REVIEW(stuck) past 3× it (the
+always-conclude backstop), and force-releases claims orphaned by a dead
+process (`claim_gen` ≠ boot id). The escalation resolver runs at `:50`;
+the worktree GC sweeps hourly plus once shortly after boot.
 
 ### Transition shape
 
@@ -209,12 +214,17 @@ Same-priority ties use FIFO (`created_at ASC`).
 
 ### Loop brake
 
-`task_decide("decline")` appends an AI comment, then counts AI comments
-since the last human comment via `countAiAutoActions`. If the count
-reaches `max_ai_decline_cycles` (default 3), the brake fires:
+Each brake counts AI comments logged under its own stage since the last
+human comment via `countAiAutoActions(taskId, stage)` (stage-scoped, so
+activity elsewhere neither trips a brake early nor masks a real loop). At
+`max_ai_decline_cycles` (default 3) the brake parks the task for a human:
 
-- AI-REVIEW: force-move to PUBLISHING so the human reviews the PR.
-- PUBLISHING (conflict resolution failure): force-move to NEEDS_REVIEW(conflict).
+- AI-REVIEW decline: NEEDS_REVIEW(declined) — the deliverable exists but was rejected.
+- AI-REVIEW run without a verdict (`[ai-review-incomplete]` markers): NEEDS_REVIEW(stuck).
+- VERIFYING fail or no-verdict (`[verify-incomplete]`): NEEDS_REVIEW(verify).
+- PUBLISHING (conflict resolution failure): NEEDS_REVIEW(conflict).
+- `task_escalate`: the same cap bounds lifetime escalations per task — past
+  it the auto-resolver is skipped and the question goes straight to a human.
 
 Human comments reset the counter. Comments authored by the manual "Solve
 with Sonnet" CTA are prefixed with `[manual] ` and excluded from the count.
@@ -225,7 +235,8 @@ with Sonnet" CTA are prefixed with `[manual] ` and excluded from the count.
 |---|---|
 | `skip_plan` | TODO picker routes the task TODO → IMPLEMENTING directly (no PLANNING tick, no plan/checklist, no plan review). Worktree/workspace setup runs lazily on the first IMPLEMENTING entry. Implies `skip_plan_review`. |
 | `skip_plan_review` | PLANNING auto-approves; goes IMPLEMENTING instead of NEEDS_REVIEW(plan). No effect when `skip_plan` is also on. |
-| `skip_ai_review` | IMPLEMENTING goes PUBLISHING instead of AI-REVIEW. |
+| `skip_ai_review` | IMPLEMENTING goes VERIFYING instead of AI-REVIEW. |
+| `skip_verify` | VERIFYING bypassed; straight to PUBLISHING. Mode-derived default (ON non-dev / OFF dev); auto-set on docs-only diffs and by a `static_sufficient` AI-REVIEW approve — never overrides an explicit human choice. |
 
 ## Run modes
 
@@ -436,19 +447,20 @@ restarting from BACKLOG.
 ### Orphaned claim after a restart ("worker dead")
 
 A krill restart (or crash) kills every in-flight stage worker, but the task keeps
-the dead worker's claim — so it sits in its stage until the claim TTL lapses (the
-next tick then re-picks it). The board flags these **"worker dead"** with a
-countdown to that self-heal and a **Recover** button.
+the dead worker's claim. The stuck scanner detects and **force-releases these
+orphaned claims on every tick**, so the task is re-picked within about a minute —
+no waiting out the claim TTL. The board flags them **"worker dead"** briefly and
+keeps a **Recover** button as the manual override.
 
-- **Recover** (UI) or `POST /api/tasks/<id>/recover` force-releases the claim so
-  the next stage tick re-picks it immediately. Status is untouched; the worktree
-  and its edits are preserved (`ensureWorkspace` is idempotent — the stage re-runs
-  and commits whatever's there).
 - Detection is by per-boot generation: each claim is stamped with `claim_gen`
   (the process boot id, exposed as `/api/health.boot_id`); a held claim whose
   `claim_gen` ≠ the running boot id was orphaned by a dead process.
-- Nothing re-runs unattended beyond the existing TTL self-heal — recovery is
-  manual (or you wait out the TTL).
+- **Recover** (UI) or `POST /api/tasks/<id>/recover` force-releases the claim
+  immediately without waiting for the next scanner tick. Status is untouched; the
+  worktree and its edits are preserved (`ensureWorkspace` is idempotent — the
+  stage re-runs and commits whatever's there).
+- The auto-release only frees the claim — the stage re-runs via the normal tick,
+  same as a TTL lapse would have done.
 
 **Avoid creating these**: `npm stop` / `npm run rebuild` (bridge) refuse while any
 task holds a live claim (`/api/health.active_claims > 0`) unless `--force`; the
@@ -485,8 +497,11 @@ processes opening the same DB. Confirm only one server is running:
 ### Worktree leak (`~/.ai-worktrees/<slug>/<id>/` still present after a task is DONE)
 
 The cleanup hook fires on every successful active → non-active
-transition, so a leak means the transition didn't go through cleanly.
-Clean by hand:
+transition, so a leak means the transition didn't go through cleanly
+(crash, deleted task, process died mid-stage). The hourly worktree GC
+(plus a sweep shortly after boot) removes these automatically — any dir
+under the worktrees root whose task is gone or inactive, with a plain
+`rm` fallback for dirs git no longer recognizes. To clear one right now:
 
 ```bash
 cd /path/to/repo
@@ -600,11 +615,12 @@ through the old code path — recreate the task.
 │       │   ├── planning.ts
 │       │   ├── publishing.ts
 │       │   └── todo-picker.ts
-│       ├── stuck.ts                   — stuck-task scanner
+│       ├── stuck.ts                   — stuck scanner (warn / force-park / orphaned-claim release)
 │       ├── tick.ts                    — pre-checks + dispatch
 │       ├── transition.ts              — atomic transitionStatus + SSE
-│       └── types.ts                   — Stage union, STAGES, now()
+│       ├── types.ts                   — Stage union, STAGES, now()
+│       └── worktree-gc.ts             — orphaned-worktree GC (hourly + boot sweep)
 └── tests/
     ├── helpers/setup.ts               — test DB bootstrap + factories
-    └── integration/                   — 5 test files (19 tests)
+    └── integration/                   — node:test integration suite
 ```

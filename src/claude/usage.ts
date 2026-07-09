@@ -18,6 +18,7 @@ export function recordStageUsage(
   stage: ModelStage,
   projectId: string,
   usage: RunUsage,
+  model?: string,
 ): void {
   const total =
     usage.input_tokens +
@@ -31,7 +32,9 @@ export function recordStageUsage(
       task_id: task.id,
       project_id: projectId,
       stage,
-      model: MODEL_BY_STAGE[stage],
+      // Record the model that actually ran (ladder overrides), not the stage
+      // default — the decline-flip metering keys on this column.
+      model: model ?? MODEL_BY_STAGE[stage],
       input_tokens: usage.input_tokens,
       output_tokens: usage.output_tokens,
       cache_creation_tokens: usage.cache_creation_tokens,
@@ -65,7 +68,13 @@ export function recordStageUsage(
 export async function runStage(input: RunnerInput): Promise<RunnerOutput> {
   const out = await getRunner().run(input);
   if (out.usage) {
-    recordStageUsage(input.task, input.stage, input.project.id, out.usage);
+    recordStageUsage(
+      input.task,
+      input.stage,
+      input.project.id,
+      out.usage,
+      input.model,
+    );
   }
   return out;
 }

@@ -13,6 +13,9 @@ export type RunnerInput = {
   baseUrl: string;
   cwd: string;
   timeoutMs: number;
+  // Per-run override of MODEL_BY_STAGE — the cheap-first ladder (e.g. Sonnet
+  // on a first AI-REVIEW pass, Opus only once the review is contested).
+  model?: string;
 };
 
 // Token usage for a single claude spawn, parsed from the `--output-format json`
@@ -85,7 +88,7 @@ export class RealClaudeRunner implements ClaudeRunner {
         this.claudeBin,
         [
           "--model",
-          MODEL_BY_STAGE[input.stage],
+          input.model ?? MODEL_BY_STAGE[input.stage],
           "--mcp-config",
           cfg.path,
           // User MCP servers (e.g. Supabase) load alongside our task server so

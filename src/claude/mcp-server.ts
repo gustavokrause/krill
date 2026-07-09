@@ -71,8 +71,8 @@ export const TOOL_REGISTRY = {
   ) => task_append_comment(ctx, args.stage, args.text),
   task_decide: (
     ctx: McpAuthContext,
-    args: { outcome: "approve" | "decline"; reason: string },
-  ) => task_decide(ctx, args.outcome, args.reason),
+    args: { outcome: "approve" | "decline"; reason: string; static_sufficient?: boolean },
+  ) => task_decide(ctx, args.outcome, args.reason, args.static_sufficient ?? false),
   task_verify: (
     ctx: McpAuthContext,
     args: { outcome: "pass" | "fail"; reason: string; evidence?: string },

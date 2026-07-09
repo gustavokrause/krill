@@ -305,7 +305,7 @@ const FORWARD_EDGES: { from: string; to: string; label: string }[] = [
   { from: "TODO", to: "PLANNING", label: "auto pick" },
   { from: "PLANNING", to: "IMPLEMENTING", label: "Opus → human approve plan" },
   { from: "IMPLEMENTING", to: "AI-REVIEW", label: "Sonnet" },
-  { from: "AI-REVIEW", to: "VERIFYING", label: "Opus approve" },
+  { from: "AI-REVIEW", to: "VERIFYING", label: "review approve" },
   { from: "VERIFYING", to: "PUBLISHING", label: "Sonnet verified" },
   { from: "PUBLISHING", to: "NEEDS_REVIEW", label: "deliverable | conflict" },
   { from: "NEEDS_REVIEW", to: "DONE", label: "human approve" },
@@ -313,7 +313,7 @@ const FORWARD_EDGES: { from: string; to: string; label: string }[] = [
 
 // Decline arcs curve under the main row.
 const DECLINE_EDGES: { from: string; to: string; label: string }[] = [
-  { from: "AI-REVIEW", to: "IMPLEMENTING", label: "Opus decline" },
+  { from: "AI-REVIEW", to: "IMPLEMENTING", label: "review decline" },
   { from: "VERIFYING", to: "IMPLEMENTING", label: "verify fail" },
   { from: "NEEDS_REVIEW", to: "IMPLEMENTING", label: "human decline" },
 ];
@@ -558,9 +558,9 @@ function Legend() {
         <div className="font-medium text-text mb-1">Models</div>
         <ul className="space-y-0.5">
           <li><span className="font-mono text-text-2">auto</span> — <span className="font-mono text-info">TODO</span> pick (deterministic SQL, no model)</li>
-          <li><span className="font-mono text-ai">Opus</span> — <span className="font-mono text-info">PLANNING</span>, <span className="font-mono text-warning">AI-REVIEW</span>, escalation auto-resolver</li>
-          <li><span className="font-mono text-ai">Sonnet</span> — <span className="font-mono text-info">IMPLEMENTING</span>, <span className="font-mono text-warning">VERIFYING</span>; <span className="font-mono text-info">PUBLISHING</span> only on the conflict resolver (happy path is LLM-free)</li>
-          <li><span className="font-mono text-human">human</span> — <span className="font-mono text-warning">NEEDS_REVIEW</span> (plan / deliverable / conflict / empty / verify / question / declined), <span className="font-mono text-muted">cancel</span></li>
+          <li><span className="font-mono text-ai">Opus</span> — <span className="font-mono text-info">PLANNING</span>; <span className="font-mono text-warning">AI-REVIEW</span> only when contested (a prior review cycle exists since the last human comment)</li>
+          <li><span className="font-mono text-ai">Sonnet</span> — <span className="font-mono text-info">IMPLEMENTING</span>, <span className="font-mono text-warning">VERIFYING</span>, first <span className="font-mono text-warning">AI-REVIEW</span> pass of a task, escalation auto-resolver; <span className="font-mono text-info">PUBLISHING</span> only on the conflict resolver (happy path is LLM-free)</li>
+          <li><span className="font-mono text-human">human</span> — <span className="font-mono text-warning">NEEDS_REVIEW</span> (plan / deliverable / conflict / empty / verify / question / declined / stuck), <span className="font-mono text-muted">cancel</span></li>
         </ul>
       </div>
       <div>
@@ -588,8 +588,9 @@ function Legend() {
           <li><span className="font-mono text-warning">conflict</span> — has_repo only. Retry PUBLISHING (re-runs the deterministic merge), Solve with Sonnet (shown only when <span className="font-mono">publishing_solve_conflicts=false</span>), or decline → <span className="font-mono text-info">IMPLEMENTING</span>.</li>
           <li><span className="font-mono text-warning">verify</span> — VERIFYING failed past <span className="font-mono">max_ai_decline_cycles</span> (couldn&apos;t prove the change meets <span className="font-mono">acceptance</span>). Back to <span className="font-mono text-info">IMPLEMENTING</span> to redo, or override straight to <span className="font-mono text-info">PUBLISHING</span>.</li>
           <li><span className="font-mono text-warning">declined</span> — <span className="font-mono text-warning">AI-REVIEW</span> rejected the change past the brake. The deliverable EXISTS but was declined (distinct from <span className="font-mono">deliverable</span> = approved-pending-merge). Human redirects to <span className="font-mono text-info">IMPLEMENTING</span> or ships it anyway.</li>
-          <li><span className="font-mono text-warning">question</span> — a stage hit a judgment fork. The <span className="font-mono">escalation_auto_resolve</span> Opus pass also deferred (or is off), so a human picks from the recorded options; the answer resumes the origin stage.</li>
+          <li><span className="font-mono text-warning">question</span> — a stage hit a judgment fork. The <span className="font-mono">escalation_auto_resolve</span> Sonnet pass also deferred (or is off, or the task is past its escalation cap), so a human picks from the recorded options; the answer resumes the origin stage.</li>
           <li><span className="font-mono text-warning">empty</span> — IMPLEMENTING produced no commits / nothing to ship. No artifact to approve — re-run <span className="font-mono text-info">IMPLEMENTING</span> or cancel.</li>
+          <li><span className="font-mono text-warning">stuck</span> — a stage couldn&apos;t conclude at all: AI-REVIEW reached no verdict after <span className="font-mono">max_ai_decline_cycles</span> runs, or the task sat past 3× <span className="font-mono">max_stage_duration</span> (stuck-scanner force-park). Every task concludes at a human gate — unstick, then move it back to retry.</li>
         </ul>
       </div>
       <div>
@@ -598,9 +599,9 @@ function Legend() {
           <li><span className="font-mono text-muted">skip_plan</span> — picker routes <span className="font-mono text-info">TODO</span> straight to <span className="font-mono text-info">IMPLEMENTING</span> (no PLANNING tick; setup runs lazily in IMPLEMENTING). Implies skip_plan_review.</li>
           <li><span className="font-mono text-muted">skip_plan_review</span> — auto-approve plan, no <span className="text-human">human</span> gate. Ignored when skip_plan is on.</li>
           <li><span className="font-mono text-muted">skip_ai_review</span> — <span className="font-mono text-info">IMPLEMENTING</span> skips <span className="font-mono text-warning">AI-REVIEW</span>, into <span className="font-mono text-warning">VERIFYING</span>.</li>
-          <li><span className="font-mono text-muted">skip_verify</span> — skip <span className="font-mono text-warning">VERIFYING</span> (don&apos;t run the change); go to <span className="font-mono text-info">PUBLISHING</span>. Default ON for non-dev, OFF for dev.</li>
+          <li><span className="font-mono text-muted">skip_verify</span> — skip <span className="font-mono text-warning">VERIFYING</span> (don&apos;t run the change); go to <span className="font-mono text-info">PUBLISHING</span>. Default ON for non-dev, OFF for dev. Auto-set on docs-only diffs and by a <span className="font-mono">static_sufficient</span> AI-REVIEW approve (fully-static diff); auto-set never overrides an explicit human choice.</li>
           <li><span className="font-mono text-success">auto_publish</span> — with project <span className="font-mono">allow_auto_finish</span>, <span className="font-mono text-info">PUBLISHING</span> merges straight to <span className="font-mono text-success">DONE</span>, no <span className="text-human">human</span> gate (AI-review still runs). On repos, suppressed when <span className="font-mono">merge_to_main</span> is off, the PR is a draft, or the merge would leave a remote behind; on no-repo projects it always finishes (no merge, so none of those apply).</li>
-          <li><span className="font-mono text-warning">max_ai_decline_cycles</span> — after N <span className="text-ai">AI</span> auto-actions without progress, park for a human at the kind that fits the stage: <span className="font-mono text-warning">declined</span> (AI-REVIEW), <span className="font-mono text-warning">verify</span> (VERIFYING), or <span className="font-mono text-warning">conflict</span> (PUBLISHING).</li>
+          <li><span className="font-mono text-warning">max_ai_decline_cycles</span> — after N <span className="text-ai">AI</span> auto-actions without progress (counted per stage), park for a human at the kind that fits: <span className="font-mono text-warning">declined</span> (AI-REVIEW decline), <span className="font-mono text-warning">stuck</span> (AI-REVIEW no-verdict), <span className="font-mono text-warning">verify</span> (VERIFYING), or <span className="font-mono text-warning">conflict</span> (PUBLISHING). Also caps lifetime escalations per task — past it, the auto-resolver is skipped.</li>
         </ul>
       </div>
       <div>
@@ -609,6 +610,7 @@ function Legend() {
           <li><span className="font-mono text-warning">blocked</span> — a stage hit something interactive it can&apos;t answer headless (MCP auth / CLI login). The task pauses (the picker skips it) and a <span className="font-mono">blocker</span> appears in the board banner. Clear it → the next tick re-runs the stage.</li>
           <li><span className="text-ai">MCP</span> — stages load your user MCP servers (e.g. Supabase) alongside krill&apos;s task tools, so a task can make real external changes. <span className="font-mono">KRILL_STRICT_MCP=1</span> isolates to krill&apos;s tools only.</li>
           <li><span className="text-ai">A3 breaker</span> — repeated auto-finish failures pause the project.</li>
+          <li><span className="font-mono text-warning">worker dead</span> — a restart orphans in-flight claims; the stuck scanner auto-releases them within a minute (re-picked next tick). <span className="font-mono">Recover</span> stays as the manual override.</li>
         </ul>
       </div>
     </div>
