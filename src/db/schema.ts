@@ -35,7 +35,11 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 // "declined" — AI-REVIEW declined the change past the brake (max cycles). The
 // deliverable EXISTS but was rejected — distinct from "deliverable" (which means
 // approved-pending-merge) so the board never reads a rejected change as ready.
-export const REVIEW_KINDS = ["plan", "deliverable", "conflict", "empty", "verify", "question", "declined"] as const;
+// "stuck" — a stage could not conclude at all: repeated runs produced no
+// verdict/transition, or the task sat past the stuck scanner's hard cap. No
+// judgment was reached (unlike "declined"/"verify") — a human must unstick it,
+// then move the task back to retry the stage.
+export const REVIEW_KINDS = ["plan", "deliverable", "conflict", "empty", "verify", "question", "declined", "stuck"] as const;
 export type ReviewKind = (typeof REVIEW_KINDS)[number];
 
 // Statuses where the worktree is preserved (cleanup gate must skip these).
@@ -235,6 +239,10 @@ export const tasks = sqliteTable(
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'`),
+    // Unified diff against base, captured once at IMPLEMENTING end (capped —
+    // see DIFF_TEXT_MAX_CHARS). AI-REVIEW/VERIFYING read it via task_context()
+    // instead of re-deriving the same bytes with their own git calls.
+    diff_text: text("diff_text"),
     branch: text("branch"),
     worktree_path: text("worktree_path"),
     workspace_path: text("workspace_path"),
@@ -306,7 +314,7 @@ export const tasks = sqliteTable(
     check("tasks_mode_enum", sql`${t.mode} IN ('dev','non-dev')`),
     check(
       "tasks_pending_review_kind_enum",
-      sql`${t.pending_review_kind} IS NULL OR ${t.pending_review_kind} IN ('plan','deliverable','conflict','empty','verify','question','declined')`,
+      sql`${t.pending_review_kind} IS NULL OR ${t.pending_review_kind} IN ('plan','deliverable','conflict','empty','verify','question','declined','stuck')`,
     ),
     check(
       "tasks_pending_review_kind_requires_status",

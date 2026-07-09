@@ -387,7 +387,10 @@ async function publishRepo(
   );
 
   const max = getMaxAiDeclineCycles();
-  const aiActions = countAiAutoActions(task.id);
+  // Scope to "NEEDS_REVIEW" — this path's own failure comments (above) land
+  // under that stage, so the brake counts conflict-resolution attempts and
+  // not unrelated stages' cycles.
+  const aiActions = countAiAutoActions(task.id, "NEEDS_REVIEW");
   if (aiActions >= max) {
     appendAiComment(
       task.id,

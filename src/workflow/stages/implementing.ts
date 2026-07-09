@@ -6,7 +6,7 @@ import { tasks } from "@/db/schema";
 import { runStage } from "@/claude/usage";
 import { TimeoutError } from "@/claude/errors";
 import { issueToken, revokeToken } from "@/claude/mcp-auth";
-import { commitAll, diffNamesAgainstBase, pushBranch } from "@/git";
+import { commitAll, diffNamesAgainstBase, diffTextAgainstBase, pushBranch } from "@/git";
 import { claim } from "../claim";
 import { applyTransitionSideEffects } from "../cleanup";
 import { appendAiComment } from "../comment";
@@ -94,8 +94,21 @@ export async function runImplementing(
         task.worktree_path,
         project.default_branch,
       );
+      // Persist the diff TEXT alongside the names: downstream AI-REVIEW and
+      // VERIFYING read it from task_context() instead of re-deriving the same
+      // bytes with their own fetch + git diff + file reads. Best-effort — a
+      // diff failure must not fail the stage; downstream falls back to git.
+      let diffText: string | null = null;
+      try {
+        diffText = await diffTextAgainstBase(
+          task.worktree_path,
+          project.default_branch,
+        );
+      } catch (err) {
+        console.warn(`diff_text capture failed for ${task.id}:`, err);
+      }
       db.update(tasks)
-        .set({ affected_paths: diff, updated_at: now() })
+        .set({ affected_paths: diff, diff_text: diffText, updated_at: now() })
         .where(eq(tasks.id, task.id))
         .run();
 

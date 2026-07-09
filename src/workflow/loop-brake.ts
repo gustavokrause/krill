@@ -1,6 +1,6 @@
 import { and, eq, desc } from "drizzle-orm";
 import { db } from "@/db/client";
-import { comments, globalConfig } from "@/db/schema";
+import { comments, globalConfig, type TaskStatus } from "@/db/schema";
 
 export { MANUAL_AI_COMMENT_PREFIX } from "@/lib/ai-comments";
 import { MANUAL_AI_COMMENT_PREFIX } from "@/lib/ai-comments";
@@ -11,12 +11,15 @@ import { MANUAL_AI_COMMENT_PREFIX } from "@/lib/ai-comments";
  * by a human-triggered CTA (prefixed with MANUAL_AI_COMMENT_PREFIX) are
  * excluded so repeated clicks do not trip the brake.
  *
- * Approximation per OVERVIEW.md ai_auto_actions definition: also resets
- * on forward state transitions, but tracking those requires an audit
- * log (deferred). Stage handlers can still observe forward progress
- * via task.stage_entered_at if needed later.
+ * `stage` scopes the count to comments logged under that stage. Each brake
+ * consumer (AI-REVIEW decline, VERIFYING fail, PUBLISHING retry) passes its
+ * own stage so activity elsewhere (planning notes, escalations, other stages'
+ * cycles) doesn't inflate its counter — a cross-stage count either trips a
+ * brake early or masks a real loop. The count deliberately spans stage
+ * *episodes* (a decline loop leaves and re-enters its stage every cycle);
+ * only a human comment resets it.
  */
-export function countAiAutoActions(taskId: string): number {
+export function countAiAutoActions(taskId: string, stage?: TaskStatus): number {
   const lastHuman = db
     .select({ at: comments.at })
     .from(comments)
@@ -27,7 +30,13 @@ export function countAiAutoActions(taskId: string): number {
   const rows = db
     .select({ at: comments.at, text: comments.text })
     .from(comments)
-    .where(and(eq(comments.task_id, taskId), eq(comments.author, "ai")))
+    .where(
+      and(
+        eq(comments.task_id, taskId),
+        eq(comments.author, "ai"),
+        ...(stage ? [eq(comments.stage, stage)] : []),
+      ),
+    )
     .all();
 
   const auto = rows.filter((r) => !r.text.startsWith(MANUAL_AI_COMMENT_PREFIX));

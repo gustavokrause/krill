@@ -76,12 +76,13 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
   │   │   ├── claim.ts         # atomic claim + transition primitives
   │   │   ├── transition.ts    # legal status transitions + pending_review_kind invariant
   │   │   ├── eligibility.ts   # deps + conflicts + max_parallel filter
-  │   │   ├── escalation.ts    # judgment-fork auto-resolver (Opus); parks NEEDS_REVIEW(question)
+  │   │   ├── escalation.ts    # judgment-fork auto-resolver (Sonnet; worktree-only — defers to human when no isolated cwd); parks NEEDS_REVIEW(question)
   │   │   ├── loop-brake.ts    # ai_auto_actions counter + max_ai_decline_cycles
   │   │   ├── blockers.ts      # unblock queue (MCP auth / CLI login)
   │   │   ├── followups.ts     # krill → whale follow-up feedback
   │   │   ├── boot-id.ts       # process boot id for orphaned-claim recovery
-  │   │   ├── stuck.ts         # stuck-task detection job
+  │   │   ├── stuck.ts         # stuck scanner: notify → force-park NEEDS_REVIEW(stuck) past 3× cap; releases orphaned claims
+  │   │   ├── worktree-gc.ts   # orphaned-worktree GC (hourly + boot sweep)
   │   │   └── stages/
   │   │       ├── todo-picker.ts
   │   │       ├── planning.ts
@@ -144,13 +145,14 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
     - name, description
     - priority (enum: "P0" | "P1" | "P2" | "P3", default "P2")
     - status (enum, includes VERIFYING)
-    - pending_review_kind (enum|null: plan | deliverable | conflict | empty | verify | question | declined; non-null iff status=NEEDS_REVIEW)
+    - pending_review_kind (enum|null: plan | deliverable | conflict | empty | verify | question | declined | stuck; non-null iff status=NEEDS_REVIEW)
     - mode ("dev" | "non-dev")
     - plan, plan_summary, checklist (text)
     - acceptance (text|null — definition-of-done for VERIFYING; null falls back to plan+checklist)
     - depends_on (json array of task ids)
     - conflicts_with (json array)
     - affected_paths (json array)
+    - diff_text (text|null — unified diff vs base captured at IMPLEMENTING end, capped 150k chars; served as `diff` by task_context)
     - branch, worktree_path, workspace_path
     - delivery_url
     - skip_plan, skip_plan_review, skip_ai_review, skip_verify (bool)
@@ -263,7 +265,7 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
 
   ```ts
   spawn('claude', [
-    '--model', MODEL_BY_STAGE[stage],            // opus-4-7: PLANNING, AI-REVIEW (+ escalation resolver); sonnet-4-6: IMPLEMENTING, VERIFYING, PUBLISHING conflict resolver
+    '--model', MODEL_BY_STAGE[stage],            // opus-4-7: PLANNING, contested AI-REVIEW; sonnet-4-6: first-pass AI-REVIEW, IMPLEMENTING, VERIFYING, escalation resolver, PUBLISHING conflict resolver
     '--cwd', task.worktree_path || task.workspace_path || project.folder_path,
     '--mcp-config', mcpConfigPath,                // our task MCP server (task_set_plan/decide/…)
     // NOTE: NOT --strict-mcp-config by default — your USER MCP servers (e.g.
@@ -284,14 +286,14 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
 
 -- MCP SERVER (tools exposed to Claude) --
 
-  - task_context()                       → task, project, plan, checklist, comments, affected_paths, peers' affected_paths, branch state
+  - task_context()                       → task, project, plan, checklist, comments, affected_paths, diff (unified diff vs base — review/verify read this instead of re-running git diff), peers' affected_paths, branch state
   - task_set_plan(text)
   - task_set_plan_summary(text)          → PLANNING writes the short plan summary
   - task_set_plan_bundle(...)            → PLANNING batches plan + plan_summary + checklist + affected_paths in one call
   - task_set_checklist(text)
   - task_set_affected_paths(paths: string[])
   - task_append_comment(stage, text)
-  - task_decide(outcome: "approve" | "decline", reason?: text)   → AI-REVIEW
+  - task_decide(outcome: "approve" | "decline", reason?: text, static_sufficient?: bool)   → AI-REVIEW (static_sufficient approve = fully-static diff → skip VERIFYING unless the human set skip_verify explicitly)
   - task_verify(verdict: "pass" | "fail", reason?: text)         → VERIFYING
   - task_resolve(decision)                                       → escalation auto-resolver picks an option
 

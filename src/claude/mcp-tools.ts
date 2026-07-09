@@ -148,6 +148,10 @@ export function task_context(ctx: McpAuthContext) {
       skip_verify: task.skip_verify,
       acceptance: task.acceptance,
       escalation: task.escalation ? JSON.parse(task.escalation) : null,
+      // Unified diff vs base, captured at IMPLEMENTING end. Review/verify use
+      // this instead of re-running git diff; null before implementation or on
+      // capture failure (then fall back to git in the worktree).
+      diff: task.diff_text,
     },
     project: {
       id: project.id,
@@ -359,6 +363,7 @@ export function task_decide(
   ctx: McpAuthContext,
   outcome: DecisionOutcome,
   reason: string,
+  staticSufficient = false,
 ) {
   authorize(ctx, "task_decide");
   const task = loadTask(ctx.taskId);
@@ -369,9 +374,24 @@ export function task_decide(
     );
   }
 
-  const target = postAiReviewTarget(task);
-
   if (outcome === "approve") {
+    // Static-sufficient approve (tracker B3): the reviewer judged the diff
+    // static/low-blast-radius — a dynamic VERIFYING spawn would only re-read
+    // what this review just cleared. Only flips a still-default skip_verify;
+    // an explicit human choice is never overridden.
+    if (staticSufficient && !task.skip_verify) {
+      db.update(tasks)
+        .set({ skip_verify: true, updated_at: now() })
+        .where(eq(tasks.id, ctx.taskId))
+        .run();
+      task.skip_verify = true;
+      task_append_comment(
+        ctx,
+        "AI-REVIEW",
+        "static-sufficient: review fully covers this diff — skipping dynamic verify.",
+      );
+    }
+    const target = postAiReviewTarget(task);
     task_append_comment(ctx, "AI-REVIEW", `approve: ${reason}`);
     const moved = transitionStatus({
       taskId: ctx.taskId,
@@ -386,7 +406,7 @@ export function task_decide(
   task_append_comment(ctx, "AI-REVIEW", `decline: ${reason}`);
 
   const max = getMaxAiDeclineCycles();
-  const count = countAiAutoActions(ctx.taskId);
+  const count = countAiAutoActions(ctx.taskId, "AI-REVIEW");
   if (count >= max) {
     // Park for a human — do NOT force the task forward. After `max` declines the
     // change still doesn't pass review; advancing it toward PUBLISHING would ship
@@ -456,7 +476,7 @@ export function task_verify(
   task_append_comment(ctx, "VERIFYING", `verify failed: ${detail}`);
 
   const max = getMaxAiDeclineCycles();
-  const count = countAiAutoActions(ctx.taskId);
+  const count = countAiAutoActions(ctx.taskId, "VERIFYING");
   if (count >= max) {
     task_append_comment(
       ctx,
@@ -497,6 +517,10 @@ type Escalation = {
   resolver_tried: boolean;
   decision?: string;
   needs_human?: boolean;
+  // Lifetime escalations on this task. Without it, escalate → auto-resolve →
+  // back-to-stage → re-escalate cycles forever (each escalate used to reset
+  // resolver_tried). Past the cap the resolver is skipped and a human decides.
+  escalation_count?: number;
 };
 
 /**
@@ -518,12 +542,28 @@ export function task_escalate(
   if (!q) throw new McpAuthError("task_escalate requires a question");
   const task = loadTask(ctx.taskId);
 
+  // Lifetime cap: each escalate used to reset resolver_tried, so a stage could
+  // cycle escalate → auto-resolve → re-escalate forever. Past the cap, skip the
+  // resolver (latch resolver_tried) and pause for a human.
+  let prevCount = 0;
+  try {
+    prevCount = task.escalation
+      ? ((JSON.parse(task.escalation) as Escalation).escalation_count ?? 0)
+      : 0;
+  } catch {
+    prevCount = 0;
+  }
+  const escalationCount = prevCount + 1;
+  const exhausted = escalationCount > getMaxAiDeclineCycles();
+
   const escalation: Escalation = {
     question: q,
     options: Array.isArray(options) ? options.map((o) => String(o).trim()).filter(Boolean) : [],
     evidence: (evidence ?? "").trim(),
     origin_stage: ctx.stage,
-    resolver_tried: false,
+    resolver_tried: exhausted,
+    ...(exhausted ? { needs_human: true } : {}),
+    escalation_count: escalationCount,
   };
   db.update(tasks)
     .set({ escalation: JSON.stringify(escalation), updated_at: now() })
@@ -533,7 +573,10 @@ export function task_escalate(
   task_append_comment(
     ctx,
     STATUS_BY_STAGE[ctx.stage] ?? task.status,
-    `Escalated a judgment call: ${q}${escalation.options.length ? `\nOptions: ${escalation.options.join(" | ")}` : ""}`,
+    `Escalated a judgment call: ${q}${escalation.options.length ? `\nOptions: ${escalation.options.join(" | ")}` : ""}` +
+      (exhausted
+        ? `\n\nEscalation #${escalationCount} on this task — past the cap; skipping auto-resolution, a human must decide.`
+        : ""),
   );
 
   const moved = transitionStatus({
@@ -543,6 +586,15 @@ export function task_escalate(
     pendingReviewKind: "question",
   });
   if (!moved) throw new McpAuthError("escalate transition lost; retry");
+
+  if (exhausted) {
+    pauseLineForHuman({
+      taskId: ctx.taskId,
+      stage: ctx.stage,
+      summary: `${ctx.taskId} escalated ${escalationCount}× — past the cap, needs your decision`,
+      detail: q,
+    });
+  }
   return { ok: true, status: "NEEDS_REVIEW", kind: "question" };
 }
 

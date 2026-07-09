@@ -120,6 +120,20 @@
       "when": 1782419752976,
       "tag": "0016_flimsy_frog_thor",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1783541106724,
+      "tag": "0017_yellow_warstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1783541956084,
+      "tag": "0018_goofy_slyde",
+      "breakpoints": true
     }
   ]
 }

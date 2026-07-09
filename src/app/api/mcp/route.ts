@@ -125,6 +125,11 @@ const TOOL_DEFINITIONS = [
       properties: {
         outcome: { type: "string", enum: ["approve", "decline"] },
         reason: { type: "string" },
+        static_sufficient: {
+          type: "boolean",
+          description:
+            "Approve only: true when the diff is fully static (types, comments, constants, markup/config without logic) and this review already covers everything a dynamic run would show — skips the VERIFYING spawn. Never set it for behavior/logic changes.",
+        },
       },
       required: ["outcome"],
       additionalProperties: false,
@@ -260,7 +265,7 @@ function callTool(
     case "task_decide":
       return TOOL_REGISTRY.task_decide(
         ctx,
-        args as { outcome: "approve" | "decline"; reason: string },
+        args as { outcome: "approve" | "decline"; reason: string; static_sufficient?: boolean },
       );
     case "task_verify":
       return TOOL_REGISTRY.task_verify(

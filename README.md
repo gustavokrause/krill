@@ -101,9 +101,10 @@ npm run dev
 npm test
 ```
 
-62 tests covering atomic claim, transitions, eligibility, the decline brake,
-publish-policy resolution, the auto-finish path + permission gate, the circuit
-breaker, and the full BACKLOG → DONE walk against a stub Claude. ~9s.
+129 tests covering atomic claim, transitions, eligibility, the loop brakes and
+always-conclude backstops, publish-policy resolution, the auto-finish path +
+permission gate, the circuit breaker, and the full BACKLOG → DONE walk against
+a stub Claude.
 
 ## LAN trust model
 

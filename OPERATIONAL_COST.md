@@ -36,7 +36,20 @@ Actuals are now metered, not just estimated: every Claude CLI spawn writes a `st
 
 ## Optimization levers
 
-- Prompt caching across passes (static `{plan}`, evolving `{checklist}`).
+- Prompt caching is INTRA-spawn only (plus the static system prefix via
+  `--exclude-dynamic-system-prompt-sections`). There is NO cross-pass session
+  reuse — each stage is a cold spawn, and cron gaps exceed the 5-min cache TTL.
+  See bridge's `docs/session-continuity.md` for what real cross-stage reuse
+  would take and its honest gains.
+- Diff persisted once at IMPLEMENTING end (`diff_text`, capped) — AI-REVIEW and
+  VERIFYING read it from task_context() instead of re-deriving the same bytes
+  with their own fetch + git diff + file reads.
+- Cheap-first review ladder: a task's FIRST AI-REVIEW pass runs Sonnet; Opus
+  only once the review is contested (a decline cycle exists). Escalation
+  resolver runs Sonnet (its defer path lands on a human anyway). Watch the
+  decline-flip rate in stage_usage (model column records what actually ran).
+- Static-sufficient approve: AI-REVIEW can pass `static_sufficient=true` for
+  fully-static diffs, skipping the VERIFYING spawn it would duplicate.
 - `skip_plan=true` for one-liner tasks → bypass plan-writing.
 - `skip_plan_review=true` → auto-approve plan; saves the human gate.
 - `skip_ai_review=true` for trivial tasks → bypass AI-REVIEW (saves Opus call).

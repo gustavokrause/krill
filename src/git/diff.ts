@@ -27,6 +27,29 @@ export async function diffNamesAgainstBase(
     .filter((s) => s.length > 0);
 }
 
+// Cap for the persisted unified diff. Past this the tail is dropped with a
+// marker so downstream stages know to fall back to `git diff` themselves.
+export const DIFF_TEXT_MAX_CHARS = 150_000;
+export const DIFF_TEXT_TRUNCATED_MARKER =
+  "\n\n[diff truncated — run `git diff` in the worktree for the full text]";
+
+/**
+ * Full unified diff against base, persisted at IMPLEMENTING end so AI-REVIEW
+ * and VERIFYING read it from task_context() instead of each re-deriving it
+ * with their own fetch + git diff + file reads (tracker B1: the same diff was
+ * re-tokenized 2-3× per task). Same base-pick rules as diffNamesAgainstBase.
+ */
+export async function diffTextAgainstBase(
+  worktreePath: string,
+  defaultBranch: string,
+): Promise<string> {
+  const git = simpleGit(worktreePath);
+  const base = await pickBase(worktreePath, defaultBranch);
+  const output = await git.raw(["diff", `${base}...HEAD`]);
+  if (output.length <= DIFF_TEXT_MAX_CHARS) return output;
+  return output.slice(0, DIFF_TEXT_MAX_CHARS) + DIFF_TEXT_TRUNCATED_MARKER;
+}
+
 async function pickBase(
   worktreePath: string,
   defaultBranch: string,
