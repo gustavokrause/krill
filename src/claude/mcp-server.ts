@@ -75,8 +75,13 @@ export const TOOL_REGISTRY = {
   ) => task_decide(ctx, args.outcome, args.reason, args.static_sufficient ?? false),
   task_verify: (
     ctx: McpAuthContext,
-    args: { outcome: "pass" | "fail"; reason: string; evidence?: string },
-  ) => task_verify(ctx, args.outcome, args.reason, args.evidence),
+    args: {
+      outcome: "pass" | "fail";
+      reason: string;
+      evidence?: string;
+      measurements?: { metric: string; before?: string; after: string; source: string }[];
+    },
+  ) => task_verify(ctx, args.outcome, args.reason, args.evidence, args.measurements),
   task_escalate: (
     ctx: McpAuthContext,
     args: { question: string; options?: string[]; evidence?: string },

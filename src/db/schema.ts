@@ -268,6 +268,16 @@ export const tasks = sqliteTable(
     // Definition-of-done VERIFYING checks against. Set at task creation, or
     // written by PLANNING when left blank. NULL falls back to plan + checklist.
     acceptance: text("acceptance"),
+    // Impact pair (value ledger — the counterpart to stage_usage's cost ledger).
+    // expected_impact: one-sentence hypothesis written at plan time — what
+    // observably improves, how it would be measured, why it matters. Blank is
+    // honest for housekeeping; never invented.
+    expected_impact: text("expected_impact"),
+    // measured_impact: JSON [{metric, before, after, source}] — ONLY numbers
+    // VERIFYING actually observed in the worktree (build output, test timing,
+    // a measured request). Evidence or null, never a model estimate. Not a
+    // gate: verify pass/fail stays keyed on acceptance.
+    measured_impact: text("measured_impact"),
     // Escalation record (JSON) when a stage hit a judgment fork it couldn't
     // resolve: { question, options[], evidence, origin_stage, resolver_tried,
     // decision?, needs_human? }. NULL = no open escalation.

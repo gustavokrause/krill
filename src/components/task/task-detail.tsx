@@ -518,6 +518,11 @@ export function TaskDetail({
                 </div>
               </div>
               <h1 className="text-xl font-bold">{task.name}</h1>
+              {task.expected_impact ? (
+                <p className="text-xs text-info mt-1.5 truncate" title={task.expected_impact}>
+                  ◆ {task.expected_impact}
+                </p>
+              ) : null}
               {task.description ? (
                 <p className="text-sm text-text-2 mt-2 whitespace-pre-wrap">
                   {task.description}
@@ -620,6 +625,37 @@ export function TaskDetail({
         </TabsContent>
 
         <TabsContent value="acceptance" className="pt-4">
+          {task.expected_impact ? (
+            <div className="mb-4">
+              <p className="text-xs text-text-2 mb-2">
+                Expected impact — why this task matters (plan-time hypothesis).
+              </p>
+              <p className="text-sm leading-relaxed border border-info/40 bg-info/5 rounded-sm p-3">
+                {task.expected_impact}
+              </p>
+            </div>
+          ) : null}
+          {(() => {
+            let ms: { metric: string; before?: string; after: string; source: string }[] = [];
+            try {
+              ms = task.measured_impact ? JSON.parse(task.measured_impact) : [];
+            } catch { /* malformed — render nothing */ }
+            return ms.length ? (
+              <div className="mb-4">
+                <p className="text-xs text-text-2 mb-2">
+                  Measured — numbers VERIFYING actually observed (evidence, not estimates).
+                </p>
+                <div className="text-sm font-mono border border-success/40 bg-success/5 rounded-sm p-3 space-y-1">
+                  {ms.map((m, i) => (
+                    <div key={i}>
+                      {m.metric}: {m.before ? `${m.before} → ` : ""}{m.after}
+                      {m.source ? <span className="text-text-2"> ({m.source})</span> : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null;
+          })()}
           {task.acceptance ? (
             <>
               <p className="text-xs text-text-2 mb-2">

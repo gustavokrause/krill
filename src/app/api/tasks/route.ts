@@ -79,6 +79,7 @@ export async function POST(req: NextRequest) {
             // (nothing to run) when the caller doesn't specify.
             skip_verify: body.skip_verify ?? body.mode !== "dev",
             acceptance: body.acceptance ?? null,
+      expected_impact: body.expected_impact ?? null,
             est_tokens: body.est_tokens ?? null,
             auto_publish: body.auto_publish,
             create_pr: body.create_pr ?? null,

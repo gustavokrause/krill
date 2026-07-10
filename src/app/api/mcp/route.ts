@@ -145,6 +145,22 @@ const TOOL_DEFINITIONS = [
         outcome: { type: "string", enum: ["pass", "fail"] },
         reason: { type: "string", description: "what you checked and the verdict" },
         evidence: { type: "string", description: "commands run + key output proving the result" },
+        measurements: {
+          type: "array",
+          description:
+            "Quantified before/after numbers you ACTUALLY OBSERVED in the worktree (build output, test timing, a measured request) when the acceptance or expected_impact names a measurable quantity. Never estimates — omit anything you did not measure. Not a gate: pass/fail stays keyed on acceptance.",
+          items: {
+            type: "object",
+            properties: {
+              metric: { type: "string" },
+              before: { type: "string" },
+              after: { type: "string" },
+              source: { type: "string", description: "where the number came from, e.g. 'next build output'" },
+            },
+            required: ["metric", "after", "source"],
+            additionalProperties: false,
+          },
+        },
       },
       required: ["outcome", "reason"],
       additionalProperties: false,
@@ -270,7 +286,12 @@ function callTool(
     case "task_verify":
       return TOOL_REGISTRY.task_verify(
         ctx,
-        args as { outcome: "pass" | "fail"; reason: string; evidence?: string },
+        args as {
+          outcome: "pass" | "fail";
+          reason: string;
+          evidence?: string;
+          measurements?: { metric: string; before?: string; after: string; source: string }[];
+        },
       );
     case "task_escalate":
       return TOOL_REGISTRY.task_escalate(
