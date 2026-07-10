@@ -11,7 +11,8 @@ import {
   db,
   tables,
 } from "../helpers/setup";
-import { task_decide, task_escalate, task_resolve } from "@/claude/mcp-tools";
+import { task_decide, task_escalate, task_resolve, task_verify } from "@/claude/mcp-tools";
+import { prBody } from "@/workflow/stages/publishing";
 import { listBlockers } from "@/workflow/blockers";
 import { StubClaudeRunner } from "@/claude/stub-runner";
 import type { ClaudeRunner } from "@/claude/runner";
@@ -185,6 +186,34 @@ test("static-sufficient approve skips verify; explicit human choice untouched", 
   };
   assert.equal(r2.status, "VERIFYING", "plain approve keeps VERIFYING");
   assert.equal(row(t2.id).skip_verify, false);
+});
+
+test("task_verify measurements persist as measured_impact; PR body carries impact", () => {
+  const project = createProject({ slug: "AC", has_repo: false, folder_path: sandbox });
+  const t = createTask(project, {
+    name: "impact",
+    status: "VERIFYING",
+    skip_verify: false,
+    expected_impact: "cut search payload ~40%, measured by build output",
+  });
+
+  const vctx = { token: "test-token", taskId: t.id, stage: "verify" as const, expiresAt: nowSec() + 60 };
+  task_verify(vctx, "pass", "build green", "npm run build ok", [
+    { metric: "search page payload", before: "812 KB", after: "486 KB", source: "next build output" },
+    // junk entries must be dropped, not crash
+    { metric: "", after: "x", source: "y" } as never,
+  ]);
+
+  const r = row(t.id);
+  assert.equal(r.status, "PUBLISHING");
+  const ms = JSON.parse(r.measured_impact!) as { metric: string }[];
+  assert.equal(ms.length, 1, "junk measurement filtered");
+  assert.equal(ms[0].metric, "search page payload");
+
+  const body = prBody(t.id, "the plan", "", "- [x] done", "plan", r.expected_impact, r.measured_impact);
+  assert.match(body, /\*\*Expected impact:\*\* cut search payload/);
+  assert.match(body, /\*\*Measured:\*\* search page payload 812 KB → 486 KB \(next build output\)/);
+  assert.ok(body.indexOf("Expected impact") < body.indexOf("the plan"), "impact leads the PR body");
 });
 
 test("escalation past the lifetime cap skips the resolver and needs a human", () => {

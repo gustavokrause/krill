@@ -147,6 +147,10 @@ export function task_context(ctx: McpAuthContext) {
       skip_ai_review: task.skip_ai_review,
       skip_verify: task.skip_verify,
       acceptance: task.acceptance,
+      // Why this task matters (plan-time hypothesis) — context for review and
+      // verify; verify may capture before/after numbers when it names a
+      // measurable quantity.
+      expected_impact: task.expected_impact,
       escalation: task.escalation ? JSON.parse(task.escalation) : null,
       // Unified diff vs base, captured at IMPLEMENTING end. Review/verify use
       // this instead of re-running git diff; null before implementation or on
@@ -438,17 +442,31 @@ export function task_decide(
 
 export type VerifyOutcome = "pass" | "fail";
 
+export type VerifyMeasurement = {
+  metric: string;
+  before?: string;
+  after: string;
+  source: string;
+};
+
 /**
  * VERIFYING decision. pass → PUBLISHING. fail → IMPLEMENTING (re-run with the
  * failure as the next instruction). Reuses the AI decline brake: after
  * max_ai_decline_cycles fails the run can't self-correct, so it parks at
  * NEEDS_REVIEW(verify) for a human instead of looping.
+ *
+ * `measurements` (optional): quantified before/after evidence actually
+ * OBSERVED in the worktree (build output, test timing, a measured request)
+ * when the acceptance/expected_impact names a measurable. Stored on the task
+ * as the value ledger's measured side. Deliberately NOT a gate — pass/fail is
+ * keyed on acceptance only, so hypotheses stay honest instead of sandbagged.
  */
 export function task_verify(
   ctx: McpAuthContext,
   outcome: VerifyOutcome,
   reason: string,
   evidence = "",
+  measurements: VerifyMeasurement[] = [],
 ) {
   authorize(ctx, "task_verify");
   const task = loadTask(ctx.taskId);
@@ -457,6 +475,22 @@ export function task_verify(
     throw new McpAuthError(
       `task_verify requires status VERIFYING, got ${task.status}`,
     );
+  }
+
+  const cleanMeasurements = (Array.isArray(measurements) ? measurements : [])
+    .filter((m) => m && typeof m.metric === "string" && typeof m.after === "string")
+    .map((m) => ({
+      metric: m.metric.trim(),
+      ...(m.before ? { before: String(m.before).trim() } : {}),
+      after: String(m.after).trim(),
+      source: String(m.source ?? "").trim(),
+    }))
+    .filter((m) => m.metric && m.after);
+  if (cleanMeasurements.length) {
+    db.update(tasks)
+      .set({ measured_impact: JSON.stringify(cleanMeasurements), updated_at: now() })
+      .where(eq(tasks.id, ctx.taskId))
+      .run();
   }
 
   const detail = evidence ? `${reason}\n\nEvidence:\n${evidence}` : reason;

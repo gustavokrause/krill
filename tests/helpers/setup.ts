@@ -137,6 +137,8 @@ export function createTask(
       // path; the verify suite opts in with skip_verify: false.
       skip_verify: opts.skip_verify ?? true,
       acceptance: opts.acceptance ?? null,
+      expected_impact: opts.expected_impact ?? null,
+      measured_impact: opts.measured_impact ?? null,
       escalation: opts.escalation ?? null,
       auto_publish: opts.auto_publish ?? false,
       create_pr: opts.create_pr ?? null,

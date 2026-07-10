@@ -305,7 +305,7 @@ async function publishRepo(
       base: project.default_branch,
       head: task.branch,
       title: `${task.id}: ${task.name}`,
-      body: prBody(task.id, task.plan, task.plan_summary, task.checklist, project.pr_description_source as "plan" | "summary"),
+      body: prBody(task.id, task.plan, task.plan_summary, task.checklist, project.pr_description_source as "plan" | "summary", task.expected_impact, task.measured_impact),
       draft: policy.draftPr,
     });
     if (task.delivery_url !== pr.url) {
@@ -558,6 +558,8 @@ export function prBody(
   planSummary: string,
   checklist: string,
   source: "plan" | "summary",
+  expectedImpact?: string | null,
+  measuredImpact?: string | null,
 ): string {
   const implNotes = db
     .select()
@@ -571,7 +573,32 @@ export function prBody(
 
   const lead = source === "summary" ? (planSummary.trim() || plan) : plan;
 
+  // Impact framing leads the PR: the hypothesis from plan time, plus any
+  // numbers verify actually observed. Absent fields are simply omitted.
+  const impactLines: string[] = [];
+  if (expectedImpact?.trim()) {
+    impactLines.push(`**Expected impact:** ${expectedImpact.trim()}`);
+  }
+  if (measuredImpact) {
+    try {
+      const ms = JSON.parse(measuredImpact) as {
+        metric: string;
+        before?: string;
+        after: string;
+        source: string;
+      }[];
+      for (const m of ms) {
+        impactLines.push(
+          `**Measured:** ${m.metric} ${m.before ? `${m.before} → ` : ""}${m.after}${m.source ? ` (${m.source})` : ""}`,
+        );
+      }
+    } catch {
+      // Malformed JSON — skip silently; the PR body must never fail publish.
+    }
+  }
+
   const parts = [
+    ...(impactLines.length ? [...impactLines, ""] : []),
     lead || "_no plan recorded_",
     "",
     "## Checklist (final state)",

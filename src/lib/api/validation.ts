@@ -54,6 +54,7 @@ export const taskCreateSchema = z.object({
   // tasks POST route.
   skip_verify: z.boolean().optional(),
   acceptance: z.string().nullable().optional(),
+  expected_impact: z.string().nullable().optional(),
   auto_publish: z.boolean().default(false),
   // whale's pre-flight token estimate (sum of stage medians for the stages this
   // task will run). Omitted = no estimate; the board just shows used.
@@ -79,6 +80,7 @@ export const taskPatchSchema = z.object({
   skip_ai_review: z.boolean().optional(),
   skip_verify: z.boolean().optional(),
   acceptance: z.string().nullable().optional(),
+  expected_impact: z.string().nullable().optional(),
   auto_publish: z.boolean().optional(),
   create_pr: z.boolean().nullable().optional(),
   push_remote: z.boolean().nullable().optional(),

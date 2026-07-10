@@ -58,6 +58,8 @@ AI + HUMAN WORKFLOW
     {plan_summary} # short summary of the plan, written by PLANNING via an MCP tool (task_set_plan_summary / task_set_plan_bundle). Shown above the plan in the Plan tab; can fill the PR body when project.{pr_description_source}="summary". Default "".
     {checklist}
     {acceptance} # text | null — definition-of-done the VERIFYING stage checks the change against. Set at task creation, or written by PLANNING when left blank. NULL → VERIFYING falls back to {plan} + {checklist}.
+    {expected_impact} # text | null — value-ledger hypothesis written at plan time (whale): what observably improves, measured how, why it matters. Informational — never a gate. Leads the PR body when set.
+    {measured_impact} # text | null — JSON [{metric, before?, after, source}] of numbers VERIFYING actually OBSERVED in the worktree (build output, test timing, a measured request) via task_verify's optional `measurements` param. Evidence or null, never a model estimate; missing an impact target is NOT a verify fail (pass/fail stays keyed on {acceptance} so hypotheses don't get sandbagged).
 
     {created_at}
     {started_at}
