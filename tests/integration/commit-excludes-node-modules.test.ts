@@ -61,3 +61,21 @@ test("commitAll returns null when the only change is the node_modules symlink", 
   const sha = await commitAll(wt, "noop");
   assert.equal(sha, null, "nothing to commit once node_modules is excluded");
 });
+
+test("commitAll never commits .playwright-mcp artifacts", async () => {
+  // Repo does NOT gitignore .playwright-mcp — the exact leak that shipped
+  // browser screenshots into a real PR. commitAll's guard must exclude it.
+  mkdirSync(join(wt, ".playwright-mcp"));
+  writeFileSync(join(wt, ".playwright-mcp", "shot.png"), "fakepng\n");
+  writeFileSync(join(wt, "fix.ts"), "export const y = 2;\n");
+
+  const sha = await commitAll(wt, "fix: the actual change");
+  assert.ok(sha, "the real change still commits");
+
+  const tracked = sh("git ls-files", wt).split("\n").filter(Boolean);
+  assert.ok(tracked.includes("fix.ts"));
+  assert.ok(
+    !tracked.some((p) => p.startsWith(".playwright-mcp")),
+    "browser artifacts are never committed",
+  );
+});

@@ -7,6 +7,7 @@ import { runStage } from "@/claude/usage";
 import { TimeoutError } from "@/claude/errors";
 import { issueToken, revokeToken } from "@/claude/mcp-auth";
 import { commitAll, diffNamesAgainstBase, diffTextAgainstBase, pushBranch } from "@/git";
+import { effectiveModel, pickResumeSession } from "@/claude/resume";
 import { claim } from "../claim";
 import { applyTransitionSideEffects } from "../cleanup";
 import { appendAiComment } from "../comment";
@@ -55,6 +56,14 @@ export async function runImplementing(
   const token = issueToken(task.id, "implementing", ttl);
   try {
     const prompt = pickPromptFor("implementing", task);
+    // V1 retry-resume: a prior implementing session (this is a decline /
+    // verify-fail redo) whose cache is still warm carries the whole working
+    // context — resume it instead of re-deriving. First runs have none.
+    const resumeSessionId = pickResumeSession(
+      task,
+      "implementing",
+      effectiveModel("implementing"),
+    );
     try {
       await runStage({
         stage: "implementing",
@@ -65,6 +74,7 @@ export async function runImplementing(
         baseUrl: getBaseUrl(),
         cwd,
         timeoutMs: getRunnerTimeoutMs(ttl),
+        resumeSessionId,
       });
     } catch (err) {
       if (err instanceof TimeoutError) {
@@ -178,6 +188,14 @@ export async function runImplementing(
     });
     if (moved) {
       await applyTransitionSideEffects(task.id, "IMPLEMENTING", target);
+      // Event-driven chaining: kick the next stage's tick immediately instead
+      // of waiting out the cron slot — keeps same-model hops inside the
+      // prompt-cache TTL so V2 resumes actually hit warm cache. Fire-and-
+      // forget; the tick has all its own guards (claims, stage_enabled,
+      // backoff). Dynamic import dodges an import cycle with tick.ts.
+      const nextStage =
+        target === "AI-REVIEW" ? "ai_review" : target === "VERIFYING" ? "verify" : "publishing";
+      void import("../tick").then((m) => m.tick(nextStage)).catch(() => {});
     } else {
       releaseClaim(task.id, workerId);
     }

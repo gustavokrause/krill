@@ -16,6 +16,10 @@ export type RunnerInput = {
   // Per-run override of MODEL_BY_STAGE — the cheap-first ladder (e.g. Sonnet
   // on a first AI-REVIEW pass, Opus only once the review is contested).
   model?: string;
+  // Resume a prior session (V1/V2 continuity): the transcript is already
+  // tokenized, so context arrives as cache reads instead of re-derivation.
+  // Caller owns the policy (same model, fresh enough — see claude/resume.ts).
+  resumeSessionId?: string;
 };
 
 // Token usage for a single claude spawn, parsed from the `--output-format json`
@@ -37,6 +41,9 @@ export type RunnerOutput = {
   // Set when the run produced a parseable json envelope; undefined on auth
   // prompt / crash / non-json. Callers record it but never depend on it.
   usage?: RunUsage;
+  // Session id from the json envelope — persisted per stage so an eligible
+  // next run can resume. Best-effort like usage.
+  sessionId?: string;
 };
 
 /**
@@ -44,6 +51,15 @@ export type RunnerOutput = {
  * Returns undefined on any failure (non-json stdout from an auth prompt, a
  * crash, or a format change) — the caller must treat usage as best-effort.
  */
+export function parseSessionId(stdout: string): string | undefined {
+  try {
+    const sid = JSON.parse(stdout)?.session_id;
+    return typeof sid === "string" && sid ? sid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function parseRunUsage(stdout: string): RunUsage | undefined {
   try {
     const env = JSON.parse(stdout);
@@ -89,6 +105,9 @@ export class RealClaudeRunner implements ClaudeRunner {
         [
           "--model",
           input.model ?? MODEL_BY_STAGE[input.stage],
+          // Warm-session continuity: replay the prior transcript from cache
+          // instead of re-deriving context (policy lives in claude/resume.ts).
+          ...(input.resumeSessionId ? ["--resume", input.resumeSessionId] : []),
           "--mcp-config",
           cfg.path,
           // User MCP servers (e.g. Supabase) load alongside our task server so
@@ -196,7 +215,13 @@ export class RealClaudeRunner implements ClaudeRunner {
           return;
         }
 
-        resolveP({ stdout, stderr, exitCode, usage: parseRunUsage(stdout) });
+        resolveP({
+          stdout,
+          stderr,
+          exitCode,
+          usage: parseRunUsage(stdout),
+          sessionId: parseSessionId(stdout),
+        });
       });
 
       // Fill prompt placeholders with the real run values. The prompts carry

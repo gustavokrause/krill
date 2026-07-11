@@ -139,6 +139,7 @@ export function createTask(
       acceptance: opts.acceptance ?? null,
       expected_impact: opts.expected_impact ?? null,
       measured_impact: opts.measured_impact ?? null,
+      session_map: opts.session_map ?? null,
       escalation: opts.escalation ?? null,
       auto_publish: opts.auto_publish ?? false,
       create_pr: opts.create_pr ?? null,
