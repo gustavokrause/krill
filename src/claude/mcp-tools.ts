@@ -431,7 +431,7 @@ export function task_decide(
     // Park for a human — do NOT force the task forward. After `max` declines the
     // change still doesn't pass review; advancing it toward PUBLISHING would ship
     // the rejected work (and AUTO-MERGE it on an armed task). Mirror the VERIFYING
-    // brake: stop at NEEDS_REVIEW(deliverable) so a person decides.
+    // brake: stop at NEEDS_REVIEW(declined) so a person decides.
     task_append_comment(
       ctx,
       "AI-REVIEW",
@@ -520,6 +520,9 @@ export function task_verify(
       to: "PUBLISHING",
     });
     if (!moved) throw new McpAuthError("transition lost; retry");
+    // No cache to keep warm (publishing is LLM-free) — kicked purely to cut
+    // the cron wait off time-to-PR, consistent with the other verdicts.
+    kickStage("publishing");
     return { ok: true, status: "PUBLISHING" };
   }
 

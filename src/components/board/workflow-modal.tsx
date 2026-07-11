@@ -605,6 +605,14 @@ function Legend() {
         </ul>
       </div>
       <div>
+        <div className="font-medium text-text mb-1">Continuity &amp; impact</div>
+        <ul className="space-y-0.5">
+          <li><span className="font-mono text-ai">resume</span> — <span className="font-mono text-warning">VERIFYING</span> runs and decline/verify-fail redos resume the prior same-model session when fresh (≤5 min), so context arrives warm. <span className="font-mono text-warning">AI-REVIEW</span> always starts cold — fresh eyes by design. <span className="font-mono">KRILL_RESUME=0</span> disables.</li>
+          <li><span className="font-mono text-info">chaining</span> — verdict transitions kick the next stage immediately; the cron is the fallback, not the pacer.</li>
+          <li><span className="font-mono text-success">impact</span> — <span className="font-mono">expected_impact</span> is a plan-time hypothesis; <span className="font-mono text-warning">VERIFYING</span> may attach observed <span className="font-mono">measured_impact</span> numbers. Informational — never a gate.</li>
+        </ul>
+      </div>
+      <div>
         <div className="font-medium text-text mb-1">Blocked &amp; MCP</div>
         <ul className="space-y-0.5">
           <li><span className="font-mono text-warning">blocked</span> — a stage hit something interactive it can&apos;t answer headless (MCP auth / CLI login). The task pauses (the picker skips it) and a <span className="font-mono">blocker</span> appears in the board banner. Clear it → the next tick re-runs the stage.</li>

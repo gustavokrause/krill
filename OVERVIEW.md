@@ -7,15 +7,15 @@ AI + HUMAN WORKFLOW
   {worktrees_root} # path where per-task worktrees live; default "~/.ai-worktrees/"
 
   {automation_enabled} # bool — master kill switch; default true. When false, ALL crons exit no-op.
-  {stage_enabled} # { todo_picker, planning, implementing, ai_review, publishing }: per-stage on/off; defaults all true. Allows pausing a single model lane (e.g., Opus rate-limited → set planning=false, ai_review=false; Sonnet stages continue).
+  {stage_enabled} # { todo_picker, planning, implementing, ai_review, verify, publishing }: per-stage on/off; defaults all true. Allows pausing a single model lane (e.g., Opus rate-limited → set planning=false, ai_review=false; Sonnet stages continue).
 
   {publishing_solve_conflicts} # bool — sub-toggle for PUBLISHING stage; default false. When true, Sonnet attempts to resolve merge conflicts during the PUBLISHING tick. When false (default), conflicts skip LLM and force-move task to NEEDS_REVIEW(conflict) with PR open + comment so human resolves directly in GitHub OR clicks the per-task "Solve with Sonnet" CTA (the CTA is only shown when this toggle is false). PUBLISHING itself is LLM-free in the no-conflict path regardless of this setting.
 
-  {cron_cadence} # per-stage cadence seconds; defaults: { todo_picker: 30, planning: 60, implementing: 60, ai_review: 60, publishing: 60 }. Stagger start times (:00, :15, :30, :45) so stages do not fire simultaneously.
+  {cron_cadence} # per-stage cadence seconds; defaults: { todo_picker: 30, planning: 60, implementing: 60, ai_review: 60, verify: 60, publishing: 60 }. Stagger start times (:00, :15, :30, :45) so stages do not fire simultaneously. The cron is the FALLBACK pacer only: verdict-driven transitions (implementing done, review approve/decline, verify fail) kick the next stage's tick immediately, so chained stages fire seconds apart; the kicked tick carries all the normal guards (claim, stage_enabled, backoff).
 
-  {max_stage_duration} # per-stage seconds; defaults: { planning: 900, implementing: 3600, ai_review: 900, publishing: 600 }. Used by stuck-task detection.
+  {max_stage_duration} # per-stage seconds; defaults: { planning: 900, implementing: 3600, ai_review: 900, verify: 3600, publishing: 600 }. Used by stuck-task detection.
 
-  {claim_ttl} # per-stage lock TTL seconds; defaults: { planning: 300, implementing: 1800, ai_review: 300, publishing: 300 }. Worker sets claimed_until=now()+TTL on claim.
+  {claim_ttl} # per-stage lock TTL seconds; defaults: { planning: 300, implementing: 1800, ai_review: 300, verify: 1800, publishing: 300 }. Worker sets claimed_until=now()+TTL on claim.
 
   {api_error_backoff} # per-stage exponential backoff on API errors; sequence: 30s, 60s, 120s, cap 300s; reset on first success; isolated per-stage.
 
@@ -226,7 +226,9 @@ AI + HUMAN WORKFLOW
                   - title: `{task.id}: {task.name}` (e.g. "AT-2: Fix LP CTAs to signup")
                   - body:
                     ```
-                    {plan}
+                    {expected_impact / measured_impact lines, when set — impact framing leads the PR}
+
+                    {plan, or plan_summary when project.pr_description_source="summary"}
 
                     ## Checklist (final state)
                     {checklist}

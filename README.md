@@ -7,7 +7,7 @@
 Most AI agent tools make you define a goal, connect chat apps, configure a
 VPS, or manage cloud accounts. This one doesn't. You already have Claude Code
 installed. Point this at a repo, add tasks, and a safe staged pipeline runs
-them: plan → human review → implement → AI review → publish. That's it.
+them: plan → human review → implement → AI review → verify → publish. That's it.
 
 No goal-setting. No integrations. No infra. Clone, install, start.
 
@@ -23,12 +23,15 @@ Tasks flow through a staged pipeline:
 
 ```
 BACKLOG → TODO → PLANNING → NEEDS_REVIEW(plan) → IMPLEMENTING → AI-REVIEW
-        → PUBLISHING → NEEDS_REVIEW(deliverable|conflict) → DONE
+        → VERIFYING → PUBLISHING → NEEDS_REVIEW(deliverable|conflict) → DONE
 ```
 
 The harness handles git worktrees, branch + PR ops, atomic claims,
 kill switches, and live SSE updates. Claude fills in the plan, the code,
-and the review decisions.
+and the review decisions. Verdict transitions chain stages event-driven
+(cron is the fallback) and eligible hops resume the prior warm Claude
+session (`KRILL_RESUME=0` to disable); each task can carry an
+expected-impact hypothesis that verification backs with measured numbers.
 
 ### Autonomy & publishing (A1–A3)
 
@@ -55,8 +58,8 @@ and the review decisions.
   external systems unattended — opt projects in deliberately.
 
 Publish policy + `auto_publish` are typically set by the upstream strategy layer
-([whale](../whale)); krill enforces the gates. Schema: migrations through `0007`
-(per-task policy, draft/branch-cleanup, blockers).
+([whale](../whale)); krill enforces the gates. Schema: migrations through `0020`
+(latest: impact fields, session continuity).
 
 ## Requirements
 
@@ -101,10 +104,10 @@ npm run dev
 npm test
 ```
 
-129 tests covering atomic claim, transitions, eligibility, the loop brakes and
-always-conclude backstops, publish-policy resolution, the auto-finish path +
-permission gate, the circuit breaker, and the full BACKLOG → DONE walk against
-a stub Claude.
+134 tests covering atomic claim, transitions, eligibility, the loop brakes and
+always-conclude backstops, session-resume policy, publish-policy resolution,
+the auto-finish path + permission gate, the circuit breaker, and the full
+BACKLOG → DONE walk against a stub Claude.
 
 ## LAN trust model
 
