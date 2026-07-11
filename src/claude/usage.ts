@@ -6,6 +6,7 @@ import { broadcast } from "@/lib/sse";
 import { now } from "@/workflow/types";
 import { getRunner } from "./index";
 import { MODEL_BY_STAGE, type ModelStage } from "./model-map";
+import { recordStageSession } from "./resume";
 import type { RunnerInput, RunnerOutput, RunUsage } from "./runner";
 
 /**
@@ -19,6 +20,7 @@ export function recordStageUsage(
   projectId: string,
   usage: RunUsage,
   model?: string,
+  resumed = false,
 ): void {
   const total =
     usage.input_tokens +
@@ -42,6 +44,9 @@ export function recordStageUsage(
       cost_usd: usage.cost_usd,
       num_turns: usage.num_turns,
       duration_ms: usage.duration_ms,
+      // A/B marker for session continuity — GROUP BY resumed vs tokens/cost
+      // measures the real gain against the cold-spawn baseline.
+      resumed: resumed ? 1 : 0,
       created_at: now(),
     })
     .run();
@@ -74,6 +79,17 @@ export async function runStage(input: RunnerInput): Promise<RunnerOutput> {
       input.project.id,
       out.usage,
       input.model,
+      !!input.resumeSessionId,
+    );
+  }
+  // Persist the session id per stage so an eligible next run can resume
+  // (policy in claude/resume.ts). Best-effort, like usage.
+  if (out.sessionId) {
+    recordStageSession(
+      input.task.id,
+      input.stage,
+      out.sessionId,
+      input.model ?? MODEL_BY_STAGE[input.stage],
     );
   }
   return out;

@@ -22,6 +22,21 @@ import { now, type Stage } from "@/workflow/types";
 import { McpAuthError } from "./errors";
 import type { McpAuthContext } from "./mcp-auth";
 
+/**
+ * Event-driven chaining: kick the next stage's tick immediately after a
+ * verdict-driven transition instead of waiting out the cron slot. Keeps
+ * same-model hops (impl→verify, decline→re-implement) inside the prompt-cache
+ * TTL so session resumes hit warm cache. Fire-and-forget — the tick carries
+ * all its own guards (claims, stage_enabled, backoff); a failure here just
+ * means the cron picks it up on schedule as before. Dynamic import dodges the
+ * mcp-tools ↔ tick import cycle.
+ */
+function kickStage(stage: "implementing" | "verify" | "publishing"): void {
+  void import("@/workflow/tick")
+    .then((m) => m.tick(stage))
+    .catch(() => {});
+}
+
 const STAGE_GATES: Record<string, Stage[]> = {
   task_set_plan: ["planning"],
   task_set_plan_summary: ["planning"],
@@ -403,6 +418,7 @@ export function task_decide(
       to: target,
     });
     if (!moved) throw new McpAuthError("transition lost; retry");
+    kickStage(target === "VERIFYING" ? "verify" : "publishing");
     return { ok: true, status: target };
   }
 
@@ -437,6 +453,7 @@ export function task_decide(
     to: "IMPLEMENTING",
   });
   if (!moved) throw new McpAuthError("decline transition lost; retry");
+  kickStage("implementing");
   return { ok: true, status: "IMPLEMENTING" };
 }
 
@@ -540,6 +557,7 @@ export function task_verify(
     to: "IMPLEMENTING",
   });
   if (!moved) throw new McpAuthError("fail transition lost; retry");
+  kickStage("implementing");
   return { ok: true, status: "IMPLEMENTING" };
 }
 

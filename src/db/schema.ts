@@ -278,6 +278,11 @@ export const tasks = sqliteTable(
     // a measured request). Evidence or null, never a model estimate. Not a
     // gate: verify pass/fail stays keyed on acceptance.
     measured_impact: text("measured_impact"),
+    // Session continuity (V1/V2): last claude session per stage —
+    // JSON {stage: {id, model, at}}. A fresh same-model entry lets the next
+    // eligible run resume instead of cold-spawning (see claude/resume.ts for
+    // the policy incl. why AI-REVIEW never resumes).
+    session_map: text("session_map"),
     // Escalation record (JSON) when a stage hit a judgment fork it couldn't
     // resolve: { question, options[], evidence, origin_stage, resolver_tried,
     // decision?, needs_human? }. NULL = no open escalation.
@@ -396,6 +401,9 @@ export const stageUsage = sqliteTable(
     cost_usd: real("cost_usd").notNull().default(0),
     num_turns: integer("num_turns").notNull().default(0),
     duration_ms: integer("duration_ms").notNull().default(0),
+    // 1 when this run resumed a prior session (V1/V2 continuity) — the A/B
+    // marker: GROUP BY resumed against tokens/cost measures the real gain.
+    resumed: integer("resumed").notNull().default(0),
     created_at: integer("created_at").notNull(),
   },
   (t) => [

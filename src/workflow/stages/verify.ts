@@ -2,6 +2,7 @@ import { and, eq, gte, like } from "drizzle-orm";
 import { runStage } from "@/claude/usage";
 import { TimeoutError } from "@/claude/errors";
 import { issueToken, revokeToken } from "@/claude/mcp-auth";
+import { effectiveModel, pickResumeSession } from "@/claude/resume";
 import { db } from "@/db/client";
 import { comments, tasks } from "@/db/schema";
 import { pauseLineForHuman } from "../blockers";
@@ -58,6 +59,15 @@ export async function runVerify(workerId: string): Promise<string | null> {
   const token = issueToken(task.id, "verify", ttl);
   try {
     const prompt = pickPromptFor("verify", task);
+    // V2/V1 resume: prefer the freshest same-model session — the implementing
+    // run (diff/files/plan already in context) or a prior verify attempt.
+    // MCP auth is unchanged: this spawn gets a fresh verify-scoped token and
+    // config; the resumed transcript only supplies context.
+    const resumeSessionId = pickResumeSession(
+      task,
+      "verify",
+      effectiveModel("verify"),
+    );
     try {
       await runStage({
         stage: "verify",
@@ -68,6 +78,7 @@ export async function runVerify(workerId: string): Promise<string | null> {
         baseUrl: getBaseUrl(),
         cwd,
         timeoutMs: getRunnerTimeoutMs(ttl),
+        resumeSessionId,
       });
     } catch (err) {
       if (err instanceof TimeoutError) {

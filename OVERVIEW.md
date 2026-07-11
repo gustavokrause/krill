@@ -60,6 +60,7 @@ AI + HUMAN WORKFLOW
     {acceptance} # text | null — definition-of-done the VERIFYING stage checks the change against. Set at task creation, or written by PLANNING when left blank. NULL → VERIFYING falls back to {plan} + {checklist}.
     {expected_impact} # text | null — value-ledger hypothesis written at plan time (whale): what observably improves, measured how, why it matters. Informational — never a gate. Leads the PR body when set.
     {measured_impact} # text | null — JSON [{metric, before?, after, source}] of numbers VERIFYING actually OBSERVED in the worktree (build output, test timing, a measured request) via task_verify's optional `measurements` param. Evidence or null, never a model estimate; missing an impact target is NOT a verify fail (pass/fail stays keyed on {acceptance} so hypotheses don't get sandbagged).
+    {session_map} # text | null — JSON {stage: {id, model, at}}: last claude session per stage. Session continuity (V1/V2): IMPLEMENTING redos and VERIFYING resume a fresh (≤300s) same-model session so context arrives as cache reads; AI-REVIEW never resumes (fresh-eyes review by design). Kill switch KRILL_RESUME=0. stage_usage.resumed marks warm runs for A/B.
 
     {created_at}
     {started_at}

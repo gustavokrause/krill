@@ -36,11 +36,14 @@ Actuals are now metered, not just estimated: every Claude CLI spawn writes a `st
 
 ## Optimization levers
 
-- Prompt caching is INTRA-spawn only (plus the static system prefix via
-  `--exclude-dynamic-system-prompt-sections`). There is NO cross-pass session
-  reuse — each stage is a cold spawn, and cron gaps exceed the 5-min cache TTL.
-  See bridge's `docs/session-continuity.md` for what real cross-stage reuse
-  would take and its honest gains.
+- Session continuity (V1/V2, 2026-07): an IMPLEMENTING redo resumes its prior
+  session, and VERIFYING resumes the implementing session (same model, fresh
+  ≤300s) — context arrives as cache reads instead of re-derivation. Verdict
+  transitions kick the next stage immediately (event-driven chaining) so warm
+  hops stay inside the 5-min cache TTL; the cron remains the fallback.
+  AI-REVIEW deliberately never resumes (fresh-eyes review). Kill switch
+  KRILL_RESUME=0; `stage_usage.resumed` is the A/B marker. Design record:
+  bridge `docs/session-continuity.md`.
 - Diff persisted once at IMPLEMENTING end (`diff_text`, capped) — AI-REVIEW and
   VERIFYING read it from task_context() instead of re-deriving the same bytes
   with their own fetch + git diff + file reads.
