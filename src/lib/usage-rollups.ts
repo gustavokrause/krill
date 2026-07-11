@@ -56,6 +56,36 @@ export function getTokensToday(): number {
 }
 
 /**
+ * Cost + split since local midnight. Raw token sums read ~10× scarier than
+ * reality — ~90% of a task's "tokens" are the same cached prefix re-read every
+ * agent turn at cache-read rates. Cost is the honest scalar; the split lets
+ * the UI say why the raw number is big without lying about it.
+ */
+export function getSpendToday(): {
+  cost_usd: number;
+  new_tokens: number; // input + output + cache writes — tokenized once
+  cache_read_tokens: number; // prefix re-reads, ~0.1× weight
+} {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  const start = Math.floor(d.getTime() / 1000);
+  const row = db
+    .select({
+      cost_usd: sql<number>`coalesce(sum(${stageUsage.cost_usd}), 0)`,
+      new_tokens: sql<number>`coalesce(sum(${stageUsage.input_tokens} + ${stageUsage.output_tokens} + ${stageUsage.cache_creation_tokens}), 0)`,
+      cache_read_tokens: sql<number>`coalesce(sum(${stageUsage.cache_read_tokens}), 0)`,
+    })
+    .from(stageUsage)
+    .where(gte(stageUsage.created_at, start))
+    .get();
+  return {
+    cost_usd: row?.cost_usd ?? 0,
+    new_tokens: row?.new_tokens ?? 0,
+    cache_read_tokens: row?.cache_read_tokens ?? 0,
+  };
+}
+
+/**
  * Per-stage median of per-spawn total tokens — whale's estimation basis. SQLite
  * has no median fn, so pull totals and compute in JS. Empty until runs accrue;
  * whale treats a missing stage as 0 (degrades to a low estimate, not a crash).

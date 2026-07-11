@@ -44,6 +44,7 @@ export type HealthSnapshot = {
   active_claims: number;
   active_claim_ids: string[];
   tokens_today: number;
+  spend_today?: { cost_usd: number; new_tokens: number; cache_read_tokens: number };
 };
 
 async function jsonFetch<T>(

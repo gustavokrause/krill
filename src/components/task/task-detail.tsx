@@ -1145,15 +1145,21 @@ function UsageTab({ taskId }: { taskId: string }) {
     );
   }
 
+  // "New" = tokenized once (input + output + cache writes). "Cached" = the
+  // conversation prefix re-read every agent turn at ~0.1x rates — it dominates
+  // the raw sum (~90%) and is why unsplit totals read 10x scarier than cost.
+  const newTok = (s: StageUsageRollup) =>
+    s.input_tokens + s.output_tokens + s.cache_creation_tokens;
   const totals = stages.reduce(
     (acc, s) => ({
       runs: acc.runs + s.runs,
-      total_tokens: acc.total_tokens + s.total_tokens,
+      new_tokens: acc.new_tokens + newTok(s),
+      cache_read_tokens: acc.cache_read_tokens + s.cache_read_tokens,
       cost_usd: acc.cost_usd + s.cost_usd,
       num_turns: acc.num_turns + s.num_turns,
       duration_ms: acc.duration_ms + s.duration_ms,
     }),
-    { runs: 0, total_tokens: 0, cost_usd: 0, num_turns: 0, duration_ms: 0 },
+    { runs: 0, new_tokens: 0, cache_read_tokens: 0, cost_usd: 0, num_turns: 0, duration_ms: 0 },
   );
 
   return (
@@ -1163,7 +1169,8 @@ function UsageTab({ taskId }: { taskId: string }) {
           <tr className="border-b border-border text-xs uppercase tracking-wide text-text-2 text-left">
             <th className="px-3 py-2 font-medium">Stage</th>
             <th className="px-3 py-2 font-medium text-right">Runs</th>
-            <th className="px-3 py-2 font-medium text-right">Tokens</th>
+            <th className="px-3 py-2 font-medium text-right" title="input + output + cache writes — tokenized once">New</th>
+            <th className="px-3 py-2 font-medium text-right" title="conversation prefix re-read each agent turn — ~0.1x weight, dominates raw sums">Cached</th>
             <th className="px-3 py-2 font-medium text-right">Cost</th>
             <th className="px-3 py-2 font-medium text-right">Turns</th>
             <th className="px-3 py-2 font-medium text-right">Duration</th>
@@ -1191,9 +1198,15 @@ function UsageTab({ taskId }: { taskId: string }) {
                 <td className="px-3 py-2 text-right text-text-2">{s.runs}</td>
                 <td
                   className="px-3 py-2 text-right text-text"
-                  title={`${s.total_tokens.toLocaleString()} tokens`}
+                  title={`${newTok(s).toLocaleString()} new tokens (in ${s.input_tokens.toLocaleString()} · out ${s.output_tokens.toLocaleString()} · cache-write ${s.cache_creation_tokens.toLocaleString()})`}
                 >
-                  {formatTokens(s.total_tokens)}
+                  {formatTokens(newTok(s))}
+                </td>
+                <td
+                  className="px-3 py-2 text-right text-text-2"
+                  title={`${s.cache_read_tokens.toLocaleString()} cache-read tokens (~0.1x weight)`}
+                >
+                  {formatTokens(s.cache_read_tokens)}
                 </td>
                 <td className="px-3 py-2 text-right text-text-2">
                   ${s.cost_usd.toFixed(2)}
@@ -1214,9 +1227,15 @@ function UsageTab({ taskId }: { taskId: string }) {
             <td className="px-3 py-2 text-right text-text-2">{totals.runs}</td>
             <td
               className="px-3 py-2 text-right text-text"
-              title={`${totals.total_tokens.toLocaleString()} tokens`}
+              title={`${totals.new_tokens.toLocaleString()} new tokens`}
             >
-              {formatTokens(totals.total_tokens)}
+              {formatTokens(totals.new_tokens)}
+            </td>
+            <td
+              className="px-3 py-2 text-right text-text-2"
+              title={`${totals.cache_read_tokens.toLocaleString()} cache-read tokens (~0.1x weight)`}
+            >
+              {formatTokens(totals.cache_read_tokens)}
             </td>
             <td className="px-3 py-2 text-right text-text">
               ${totals.cost_usd.toFixed(2)}
