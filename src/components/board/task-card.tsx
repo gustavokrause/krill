@@ -378,9 +378,10 @@ export function TaskCard({
             <Tooltip
               title="Tokens"
               description={
-                task.est_tokens != null
+                (task.est_tokens != null
                   ? `${task.tokens_used.toLocaleString()} used / ${task.est_tokens.toLocaleString()} estimated${overBudget ? " — over budget" : ""}`
-                  : `${task.tokens_used.toLocaleString()} tokens used (no estimate)`
+                  : `${task.tokens_used.toLocaleString()} tokens used (no estimate)`) +
+                " — raw throughput: ~90% is the cached prefix re-read each agent turn at ~0.1x rates. Real cost is in the task's Usage tab."
               }
               side="top"
             >
