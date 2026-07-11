@@ -111,6 +111,8 @@ Do not browse a dev server from your phone — use a production build.
 | `WORKTREES_ROOT` | Per-task worktree root | `~/.ai-worktrees/` |
 | `CLAUDE_CODE_VERSION` | Smoke-tested CLI version (informational; surfaced in `/api/health`) | unset |
 | `CLAUDE_RUNNER` | `real` spawns `claude`; otherwise stub | unset (= stub) |
+| `KRILL_STRICT_MCP` | `1` isolates stages to krill's task MCP server only (your user MCP servers from `~/.claude.json` do NOT load) | unset (= user MCP loads too) |
+| `KRILL_RESUME` | `0` disables session continuity — every stage spawn is cold, the pre-continuity behavior | unset (= eligible stages resume) |
 | `CRON_DISABLED` | `1` skips node-cron registration (manual ticks only) | unset |
 | `PORT` | Bound by `next dev`/`next start` | 3000 |
 | `APP_BASE_URL` | Base URL the Claude subprocess uses to reach our MCP server | `http://127.0.0.1:$PORT` |
@@ -167,7 +169,14 @@ curl -X PATCH http://127.0.0.1:3000/api/config -H 'content-type: application/jso
 | IMPLEMENTING | every 60s (:45) | `claude-sonnet-4-6` | Code or deliverable edits, commit + push (has_repo) or workspace scan, `diff_text` capture |
 | AI-REVIEW | every 60s (:05) | `claude-sonnet-4-6` first pass; `claude-opus-4-7` once contested (a prior review cycle exists since the last human comment) | `task_decide("approve"\|"decline")` — transitions driven by the tool |
 | VERIFYING | every 60s (:35) | `claude-sonnet-4-6` | `task_verify("pass"\|"fail")` — run the change, prove `acceptance` |
-| PUBLISHING | every 60s (:25) | none in happy path (`claude-sonnet-4-6` only on conflict resolver sub-step, gated by `publishing_solve_conflicts`) | PR-first (`gh pr create` with deterministic title `{task.id}: {task.name}` + body `{plan}`+checklist+IMPLEMENTING comments) → idempotent `git fetch && git reset --hard origin/<branch>` → merge-into → push merge → NEEDS_REVIEW(deliverable) OR (conflict path) Sonnet resolve / force NEEDS_REVIEW(conflict) per toggle + brake |
+| PUBLISHING | every 60s (:25) | none in happy path (`claude-sonnet-4-6` only on conflict resolver sub-step, gated by `publishing_solve_conflicts`) | PR-first (`gh pr create` with deterministic title `{task.id}: {task.name}` + body impact lines (when set)+`{plan}`+checklist+IMPLEMENTING comments) → idempotent `git fetch && git reset --hard origin/<branch>` → merge-into → push merge → NEEDS_REVIEW(deliverable) OR (conflict path) Sonnet resolve / force NEEDS_REVIEW(conflict) per toggle + brake |
+
+The cron cadence is the **fallback pacer, not the pipeline speed**:
+verdict-driven transitions (implementing done, review approve/decline,
+verify fail) kick the next stage's tick immediately, so chained stages
+usually fire **seconds apart**. The kicked tick carries all the normal
+guards (claim, `stage_enabled`, backoff); if it loses or errors, the cron
+picks the task up on schedule as before.
 
 Stuck scanner runs at `:00` every minute: it warns on tasks past
 `max_stage_duration`, force-parks at NEEDS_REVIEW(stuck) past 3× it (the
@@ -262,6 +271,10 @@ In priority order (first wins):
 4. **Project `paused`** (`PATCH /api/projects/{id}`) — `claim()` joins
    projects and skips paused ones for every stage.
 
+Env-level (in `.env.local`, needs a restart — not automation switches):
+`KRILL_RESUME=0` disables session continuity (every stage spawn is cold);
+`KRILL_STRICT_MCP=1` isolates stages to krill's task MCP server only.
+
 ## Worktree + branch + PR lifecycle
 
 - **PLANNING (has_repo, first entry)** — `createWorktree` runs
@@ -270,7 +283,9 @@ In priority order (first wins):
   `<slug>-<N>-<slug-of-task-name>`. Falls back to local default if no
   origin.
 - **IMPLEMENTING end (has_repo)** — `commitAll` stages everything dirty
-  in the worktree, commits `<TaskId>: <name>`, `pushBranch` sets upstream.
+  in the worktree (then unstages krill-run artifacts — `node_modules`,
+  `.playwright-mcp` — even when the project's `.gitignore` misses them),
+  commits `<TaskId>: <name>`, `pushBranch` sets upstream.
   Then `diffNamesAgainstBase` fetches `origin/<default>` and overwrites
   `affected_paths` with the diff against the remote (avoids local-mirror
   drift; see I-9).
@@ -278,7 +293,9 @@ In priority order (first wins):
   `gh pr list --head <branch>`, then `gh pr create` if empty with
   template title `{task.id}: {task.name}` and body `{plan}` +
   `## Checklist (final state)` + `## Implementation notes` (comments
-  filtered to `stage=IMPLEMENTING`). Sets `delivery_url` to the PR URL.
+  filtered to `stage=IMPLEMENTING`); when `expected_impact` /
+  `measured_impact` are set, impact lines lead the body. Sets
+  `delivery_url` to the PR URL.
   `resetWorktreeToOriginBranch` (idempotent `git fetch origin && git reset
   --hard origin/<task-branch>` — picks up any human-side resolution pushed
   to GitHub between ticks) + `mergeOriginInto` merge `origin/<default>`
@@ -531,6 +548,26 @@ npm start
 
 Use the production build for all phone access. Dev mode is desktop-only.
 
+### Suspect resume-related weirdness (a stage "remembers" a stale run)
+
+IMPLEMENTING redos and VERIFYING runs may **resume** a prior Claude session
+(same model, ≤300s old — see `src/claude/resume.ts`) instead of spawning
+cold; AI-REVIEW never resumes. To debug: `tasks.session_map` (JSON
+`{stage: {id, model, at}}`) shows which session each stage last recorded,
+and `stage_usage.resumed` marks which runs were warm (`GROUP BY resumed`
+is the A/B on tokens/cost). If a resumed transcript looks like it is
+contaminating runs, set `KRILL_RESUME=0` in `.env.local` and restart —
+every spawn is cold again, behavior otherwise identical.
+
+### Screenshots / browser artifacts show up in a PR
+
+Verify/implementing browser runs write screenshots and traces to
+`.playwright-mcp/` in the worktree. `commitAll` unstages that dir (and
+`node_modules`) even when the target project's `.gitignore` doesn't cover
+it, so current code never commits them. If they still appear, the commit
+came from a stale build — rebuild + restart — and consider adding
+`.playwright-mcp/` to the project's `.gitignore` for defense in depth.
+
 ### `affected_paths` includes upstream files unrelated to the task
 
 Pre-fix I-9 you'd see this when your local default branch lagged origin.
@@ -580,7 +617,9 @@ through the old code path — recreate the task.
 │   │   ├── mcp-tools.ts               — task_context/set_plan/set_checklist/...
 │   │   ├── model-map.ts               — Stage → model id
 │   │   ├── prompts/                   — per-stage prompts (dev + non-dev)
-│   │   ├── runner.ts                  — RealClaudeRunner (spawn)
+│   │   ├── resume.ts                  — session-continuity policy (V1 retry / V2 impl→verify; KRILL_RESUME=0)
+│   │   ├── runner.ts                  — RealClaudeRunner (spawn; `--resume` when resume.ts picks a session)
+│   │   ├── usage.ts                   — per-spawn token usage → stage_usage (incl. `resumed` marker)
 │   │   ├── stub-runner.ts             — scripted stub for spike + tests
 │   │   └── index.ts                   — getRunner() / setRunner()
 │   ├── components/                    — UI primitives + page-level components
@@ -614,7 +653,8 @@ through the old code path — recreate the task.
 │       │   ├── implementing.ts
 │       │   ├── planning.ts
 │       │   ├── publishing.ts
-│       │   └── todo-picker.ts
+│       │   ├── todo-picker.ts
+│       │   └── verify.ts
 │       ├── stuck.ts                   — stuck scanner (warn / force-park / orphaned-claim release)
 │       ├── tick.ts                    — pre-checks + dispatch
 │       ├── transition.ts              — atomic transitionStatus + SSE

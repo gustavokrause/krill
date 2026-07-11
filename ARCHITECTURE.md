@@ -91,14 +91,15 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
   │   │       ├── verify.ts    # VERIFYING: run the change, prove acceptance (Sonnet)
   │   │       └── publishing.ts
   │   ├── claude/
-  │   │   ├── runner.ts        # spawn `claude` subprocess
+  │   │   ├── runner.ts        # spawn `claude` subprocess (adds --resume when resume.ts picks a session)
+  │   │   ├── resume.ts        # session-continuity policy: V1 impl/verify retry + V2 impl→verify resume (same model, ≤300s); AI-REVIEW never resumes; KRILL_RESUME=0 kill switch
   │   │   ├── model-map.ts     # MODEL_BY_STAGE (per-stage model id)
   │   │   ├── usage.ts         # record per-stage token usage → stage_usage + tasks.tokens_used
   │   │   ├── mcp-server.ts    # MCP tools exposed to Claude
   │   │   └── prompts/         # per-stage prompts (dev + non-dev variants; verify-*, resolve)
   │   ├── git/
   │   │   ├── worktree.ts      # create / destroy worktrees
-  │   │   ├── branch.ts        # create / push branches
+  │   │   ├── branch.ts        # create / push branches; commitAll unstages krill-run artifacts (node_modules, .playwright-mcp)
   │   │   ├── merge.ts         # fetch + merge-into + conflict detection
   │   │   └── pr.ts            # gh pr create / merge
   │   ├── lib/
@@ -149,6 +150,9 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
     - mode ("dev" | "non-dev")
     - plan, plan_summary, checklist (text)
     - acceptance (text|null — definition-of-done for VERIFYING; null falls back to plan+checklist)
+    - expected_impact (text|null — value-ledger hypothesis written at plan time; informational, never a gate; leads the PR body when set)
+    - measured_impact (text|null — JSON [{metric, before?, after, source}] VERIFYING actually observed, via task_verify's measurements param)
+    - session_map (text|null — JSON {stage: {id, model, at}}: last claude session per stage, consumed by claude/resume.ts for warm resumes)
     - depends_on (json array of task ids)
     - conflicts_with (json array)
     - affected_paths (json array)
@@ -176,6 +180,7 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
     - id, task_id (fk), project_id (denormalized), stage, model
     - input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens
     - cost_usd, num_turns, duration_ms, created_at
+    - resumed (0|1 — this run resumed a prior session; the A/B marker for session continuity: GROUP BY resumed vs tokens/cost)
     - (escalation-resolver runs are recorded under stage "ai_review")
 
   tool_calls (append-only — one row per krill MCP tool call; shows the bookkeeping share of a stage's turns)
@@ -244,6 +249,13 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
 
   Register via node-cron with cadence from global_config; stagger start offsets (:00, :15, :30, :45).
 
+  Event-driven chaining: verdict-driven transitions (implementing done,
+  task_decide approve/decline, task_verify fail) also call kickStage() —
+  fire-and-forget tick(nextStage) — so chained stages run seconds apart and
+  same-model hops stay inside the prompt-cache TTL for session resumes.
+  The cron cadence above is the fallback, not the pacer; the kicked tick
+  carries all the normal guards (claim, stage_enabled, backoff).
+
 
 -- STAGE HANDLER PATTERN --
 
@@ -282,6 +294,10 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
   - One subprocess per claim. Lifecycle bounded by claim TTL.
   - On TTL expiry, parent kills subprocess (SIGTERM, then SIGKILL).
   - Stdout captured for debug/audit only — authoritative I/O is MCP.
+  - Session continuity: when claude/resume.ts picks an eligible prior session
+    (same model, ≤300s fresh; IMPLEMENTING retries + VERIFYING only — never
+    AI-REVIEW), the spawn adds `--resume <session-id>` and the run is marked
+    stage_usage.resumed=1. KRILL_RESUME=0 forces cold spawns everywhere.
 
 
 -- MCP SERVER (tools exposed to Claude) --
@@ -294,7 +310,7 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
   - task_set_affected_paths(paths: string[])
   - task_append_comment(stage, text)
   - task_decide(outcome: "approve" | "decline", reason?: text, static_sufficient?: bool)   → AI-REVIEW (static_sufficient approve = fully-static diff → skip VERIFYING unless the human set skip_verify explicitly)
-  - task_verify(verdict: "pass" | "fail", reason?: text)         → VERIFYING
+  - task_verify(verdict: "pass" | "fail", reason?: text, measurements?: [{metric, before?, after, source}])   → VERIFYING (measurements = observed before/after numbers, stored in tasks.measured_impact; never gates pass/fail)
   - task_resolve(decision)                                       → escalation auto-resolver picks an option
 
   Each tool validates write authority by stage (e.g., task_decide only valid in AI-REVIEW, task_verify only in VERIFYING). Writes are transactional. SSE broadcaster fires on each mutation. Per-stage model ids live in `src/claude/model-map.ts` (MODEL_BY_STAGE).
@@ -334,7 +350,7 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
 
   - Settings page exposes:
       - automation_enabled (global toggle)
-      - stage_enabled (5 toggles)
+      - stage_enabled (per-stage toggles, incl. verify)
       - per-project paused (toggle per project)
       - rate-limit backoff state (read-only)
   - Toggling writes to global_config; SSE notifies UI; next cron tick reads new state.
