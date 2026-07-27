@@ -439,10 +439,6 @@ export function TaskDetail({
     };
   }, [
     task,
-    task.status,
-    task.pending_review_kind,
-    task.delivery_url,
-    task.draft_pr,
     project?.has_repo,
     project?.merge_to_main,
     project?.draft_pr,

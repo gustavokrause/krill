@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { db, tables, cleanData, createProject, createTask } from "../helpers/setup";
-import { createWorktree, deleteLocalBranch, deleteRemoteBranch, closePr } from "@/git";
+import { createWorktree, deleteLocalBranch, closePr } from "@/git";
 import { applyTransitionSideEffects } from "@/workflow/cleanup";
 import { taskTransitionSchema } from "@/lib/api/validation";
 
