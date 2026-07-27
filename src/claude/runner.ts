@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import type { Project, Task } from "@/db/schema";
 import { MODEL_BY_STAGE, type ModelStage } from "./model-map";
-import { BlockedError, RateLimitError, TimeoutError, classifyBlock } from "./errors";
+import { BlockedError, RateLimitError, TimeoutError, UsageLimitError, classifyBlock, classifyUsageLimit } from "./errors";
 import { generateMcpConfig } from "./mcp-config";
 
 export type RunnerInput = {
@@ -176,7 +176,8 @@ export class RealClaudeRunner implements ClaudeRunner {
 
         // Interactive block: an unauthenticated MCP / logged-out CLI answered with
         // an OAuth URL or login prompt (often exit 0). Pause + file a blocker.
-        const block = classifyBlock(`${stdout}\n${stderr}`);
+        const combined = `${stdout}\n${stderr}`;
+        const block = classifyBlock(combined);
         if (block) {
           rejectP(
             new BlockedError({
@@ -197,6 +198,20 @@ export class RealClaudeRunner implements ClaudeRunner {
               actionUrl: block.actionUrl,
               taskId: input.task.id,
               stage: input.stage,
+            }),
+          );
+          return;
+        }
+
+        const usageLimit = classifyUsageLimit(combined);
+        if (usageLimit) {
+          rejectP(
+            new UsageLimitError({
+              message: "Claude usage limit reached",
+              resetsAt: usageLimit.resetsAt,
+              scope: usageLimit.scope,
+              raw: combined.slice(0, 4000),
+              taskId: input.task.id,
             }),
           );
           return;

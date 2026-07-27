@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { globalConfig } from "@/db/schema";
-import { BlockedError, RateLimitError } from "@/claude/errors";
+import { globalConfig, usageLimits } from "@/db/schema";
+import { BlockedError, RateLimitError, UsageLimitError } from "@/claude/errors";
+import { broadcast } from "@/lib/sse";
 import {
   bumpBackoff,
   isBackoffActive,
@@ -39,7 +40,8 @@ export type TickResult =
     }
   | { ran: true; taskId: string }
   | { ran: false; reason: "rate_limited"; until: number }
-  | { ran: false; reason: "blocked"; taskId: string };
+  | { ran: false; reason: "blocked"; taskId: string }
+  | { ran: false; reason: "usage_limit"; taskId: string; resetsAt: number | null };
 
 export async function tick(stage: Stage): Promise<TickResult> {
   const cfg = db
@@ -68,6 +70,38 @@ export async function tick(stage: Stage): Promise<TickResult> {
     resetBackoff(stage);
     return { ran: true, taskId };
   } catch (err) {
+    if (err instanceof UsageLimitError) {
+      const now = Math.floor(Date.now() / 1000);
+      const row = {
+        id: randomUUID(),
+        source: "cli" as const,
+        scope: err.scope,
+        model_bucket: null,
+        used_pct: 100,
+        resets_at: err.resetsAt ?? null,
+        observed_at: now,
+        raw: err.raw.slice(0, 4000),
+      };
+      db.insert(usageLimits).values(row).run();
+      broadcast({
+        type: "limits.changed",
+        snapshot: [
+          {
+            source: row.source,
+            scope: row.scope,
+            model_bucket: row.model_bucket,
+            used_pct: row.used_pct,
+            resets_at: row.resets_at,
+            raw: row.raw,
+          },
+        ],
+      });
+      releaseClaim(err.taskId, workerId);
+      console.warn(
+        `[tick:${stage}] usage-limit exhausted ${err.taskId}: resets_at=${err.resetsAt ?? "unknown"}`,
+      );
+      return { ran: false, reason: "usage_limit", taskId: err.taskId, resetsAt: err.resetsAt };
+    }
     if (err instanceof RateLimitError) {
       const entry = bumpBackoff(stage);
       console.warn(
