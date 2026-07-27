@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { db } from "@/db/client";
 import { usageLimits, type UsageLimitSource } from "@/db/schema";
 import { broadcast } from "@/lib/sse";
+import { computeLimitsView } from "@/lib/limits-view";
 import { cliProvider } from "./limits-cli";
 import { oauthProvider } from "./limits-oauth";
 import { estimateProvider } from "./limits-estimate";
@@ -71,7 +72,7 @@ export async function readUsageLimits(): Promise<LimitSnapshot> {
     )
     .run();
 
-  broadcast({ type: "limits.changed", snapshot: rows });
+  broadcast({ type: "limits.changed", view: computeLimitsView(now) });
 
   return rows;
 }
