@@ -124,6 +124,7 @@ export function TaskCard({
   dependencies = [],
   selected = false,
   onShiftSelect,
+  waitingOnQuota,
 }: {
   task: Task;
   project?: Project;
@@ -134,6 +135,7 @@ export function TaskCard({
   dependencies?: Array<{ id: string; status: TaskStatus; name: string }>;
   selected?: boolean;
   onShiftSelect?: (id: string) => void;
+  waitingOnQuota?: { resumeAt: number | null };
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
@@ -316,6 +318,21 @@ export function TaskCard({
             >
               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono border bg-warning/10 text-warning border-warning/40">
                 <AlertTriangle className="h-2.5 w-2.5" /> blocked
+              </span>
+            </Tooltip>
+          ) : null}
+          {waitingOnQuota ? (
+            <Tooltip
+              title="Waiting on quota"
+              description={
+                waitingOnQuota.resumeAt !== null
+                  ? `Guard has this stage disabled while usage is high. Resumes at ${new Date(waitingOnQuota.resumeAt * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`
+                  : "Guard has this stage disabled while usage is high."
+              }
+              side="top"
+            >
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono border bg-warning/10 text-warning border-warning/40">
+                waiting on quota
               </span>
             </Tooltip>
           ) : null}
