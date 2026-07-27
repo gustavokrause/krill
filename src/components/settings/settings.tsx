@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { GlobalConfig, StageEnabled } from "@/db/schema";
+import type { LimitsView } from "@/lib/limits-view";
 import { MODEL_BY_STAGE } from "@/claude/model-map";
 import { api, type HealthSnapshot } from "@/lib/client/api";
 import { useEventSource } from "@/lib/client/use-event-source";
@@ -97,6 +98,7 @@ export function Settings({ initial }: { initial: GlobalConfig }) {
   const [config, setConfig] = useState(initial);
   const [pauseConfirmOpen, setPauseConfirmOpen] = useState(false);
   const [health, setHealth] = useState<HealthSnapshot | null>(null);
+  const [limits, setLimits] = useState<LimitsView | null>(null);
   const toast = useToast();
 
   useEventSource({
@@ -112,6 +114,21 @@ export function Settings({ initial }: { initial: GlobalConfig }) {
       })
       .catch(() => {
         // diagnostics absent if endpoint fails — non-fatal
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getLimits()
+      .then((l) => {
+        if (!cancelled) setLimits(l);
+      })
+      .catch(() => {
+        // source badge stays unknown if endpoint fails — non-fatal
       });
     return () => {
       cancelled = true;
@@ -333,6 +350,151 @@ export function Settings({ initial }: { initial: GlobalConfig }) {
               <p className="text-xs text-text-2 mt-3">
                 Edit via API: <code className="font-mono">PATCH /api/config</code>.
               </p>
+            </Section>
+
+            <Section
+              id="limit-guard"
+              title="Limit guard"
+              description="Pause the fleet when token usage nears the Claude limit."
+            >
+              <div className="flex items-center justify-between gap-4 mb-3">
+                <div>
+                  <div className="text-sm font-semibold">
+                    {config.limit_guard_enabled ? "Enabled" : "Disabled"}
+                  </div>
+                  <div className="font-mono text-xs text-text-2">
+                    source:{" "}
+                    <span
+                      className={
+                        limits?.source === "cli" || limits?.source === "oauth"
+                          ? "text-info"
+                          : limits?.source === "estimate"
+                            ? "text-warning"
+                            : "text-text-3"
+                      }
+                    >
+                      {limits?.source === "cli"
+                        ? "measured (cli)"
+                        : limits?.source === "oauth"
+                          ? "measured (oauth)"
+                          : limits?.source === "estimate"
+                            ? "estimated"
+                            : "unknown"}
+                    </span>
+                    {limits?.stale ? (
+                      <span className="text-text-3 ml-1">(stale)</span>
+                    ) : null}
+                  </div>
+                </div>
+                <Switch
+                  checked={config.limit_guard_enabled}
+                  onCheckedChange={(v) =>
+                    patch(
+                      { limit_guard_enabled: v },
+                      `Limit guard ${v ? "enabled" : "disabled"}`,
+                    )
+                  }
+                />
+              </div>
+              <dl className="grid grid-cols-2 gap-2">
+                <div className="rounded border border-border bg-surface-2 px-3 py-2">
+                  <dt className="font-mono text-[11px] text-text-2 truncate mb-1">
+                    soft %
+                  </dt>
+                  <dd className="flex items-baseline gap-1">
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      step={5}
+                      defaultValue={config.limit_soft_pct}
+                      className="w-16 font-mono text-base font-semibold bg-transparent border-b border-border focus:border-accent focus:outline-none"
+                      onBlur={(e) => {
+                        const next = parseInt(e.currentTarget.value, 10);
+                        if (isNaN(next) || next < 1 || next > 100 || next === config.limit_soft_pct) return;
+                        if (next > config.limit_hard_pct) {
+                          toast.push({ variant: "danger", title: "Invalid", description: "Soft % must be ≤ hard %" });
+                          return;
+                        }
+                        patch({ limit_soft_pct: next }, `Soft threshold → ${next}%`);
+                      }}
+                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                    />
+                    <span className="text-text-2 text-xs font-normal">%</span>
+                  </dd>
+                </div>
+                <div className="rounded border border-border bg-surface-2 px-3 py-2">
+                  <dt className="font-mono text-[11px] text-text-2 truncate mb-1">
+                    hard %
+                  </dt>
+                  <dd className="flex items-baseline gap-1">
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      step={5}
+                      defaultValue={config.limit_hard_pct}
+                      className="w-16 font-mono text-base font-semibold bg-transparent border-b border-border focus:border-accent focus:outline-none"
+                      onBlur={(e) => {
+                        const next = parseInt(e.currentTarget.value, 10);
+                        if (isNaN(next) || next < 1 || next > 100 || next === config.limit_hard_pct) return;
+                        if (config.limit_soft_pct > next) {
+                          toast.push({ variant: "danger", title: "Invalid", description: "Hard % must be ≥ soft %" });
+                          return;
+                        }
+                        patch({ limit_hard_pct: next }, `Hard threshold → ${next}%`);
+                      }}
+                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                    />
+                    <span className="text-text-2 text-xs font-normal">%</span>
+                  </dd>
+                </div>
+                <div className="rounded border border-border bg-surface-2 px-3 py-2">
+                  <dt className="font-mono text-[11px] text-text-2 truncate mb-1">
+                    poll
+                  </dt>
+                  <dd className="flex items-baseline gap-1">
+                    <input
+                      type="number"
+                      min={30}
+                      max={3600}
+                      step={30}
+                      defaultValue={config.limit_poll_sec}
+                      className="w-16 font-mono text-base font-semibold bg-transparent border-b border-border focus:border-accent focus:outline-none"
+                      onBlur={(e) => {
+                        const next = parseInt(e.currentTarget.value, 10);
+                        if (isNaN(next) || next < 30 || next > 3600 || next === config.limit_poll_sec) return;
+                        patch({ limit_poll_sec: next }, `Poll cadence → ${next}s`);
+                      }}
+                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                    />
+                    <span className="text-text-2 text-xs font-normal">s</span>
+                  </dd>
+                  <p className="font-mono text-[10px] text-text-3 mt-1">min 30s</p>
+                </div>
+                <div className="rounded border border-border bg-surface-2 px-3 py-2">
+                  <dt className="font-mono text-[11px] text-text-2 truncate mb-1">
+                    resume grace
+                  </dt>
+                  <dd className="flex items-baseline gap-1">
+                    <input
+                      type="number"
+                      min={0}
+                      max={3600}
+                      step={30}
+                      defaultValue={config.limit_resume_grace_sec}
+                      className="w-16 font-mono text-base font-semibold bg-transparent border-b border-border focus:border-accent focus:outline-none"
+                      onBlur={(e) => {
+                        const next = parseInt(e.currentTarget.value, 10);
+                        if (isNaN(next) || next < 0 || next > 3600 || next === config.limit_resume_grace_sec) return;
+                        patch({ limit_resume_grace_sec: next }, `Resume grace → ${next}s`);
+                      }}
+                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                    />
+                    <span className="text-text-2 text-xs font-normal">s</span>
+                  </dd>
+                </div>
+              </dl>
             </Section>
 
             <Section

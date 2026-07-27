@@ -166,6 +166,21 @@ export const configPatchSchema = z.object({
   max_ai_decline_cycles: z.number().int().min(1).optional(),
   publishing_solve_conflicts: z.boolean().optional(),
   escalation_auto_resolve: z.boolean().optional(),
+  limit_guard_enabled: z.boolean().optional(),
+  limit_soft_pct: z.number().int().min(1).max(100).optional(),
+  limit_hard_pct: z.number().int().min(1).max(100).optional(),
+  limit_poll_sec: z.number().int().min(30).max(3600).optional(),
+  limit_resume_grace_sec: z.number().int().min(0).max(3600).optional(),
+}).superRefine((data, ctx) => {
+  if (data.limit_soft_pct !== undefined && data.limit_hard_pct !== undefined) {
+    if (data.limit_soft_pct > data.limit_hard_pct) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["limit_soft_pct"],
+        message: "limit_soft_pct must be <= limit_hard_pct",
+      });
+    }
+  }
 });
 
 export const taskListQuerySchema = z.object({
