@@ -58,6 +58,11 @@ export function cleanData(): void {
       api_error_backoff: defaults.DEFAULT_API_ERROR_BACKOFF,
       paused_by_limit: false,
       limit_resume_at: null,
+      limit_guard_enabled: defaults.DEFAULT_LIMIT_GUARD_ENABLED,
+      limit_soft_pct: defaults.DEFAULT_LIMIT_SOFT_PCT,
+      limit_hard_pct: defaults.DEFAULT_LIMIT_HARD_PCT,
+      limit_poll_sec: defaults.DEFAULT_LIMIT_POLL_SEC,
+      limit_resume_grace_sec: defaults.DEFAULT_LIMIT_RESUME_GRACE_SEC,
     })
     .where(eq(schema.globalConfig.id, 1))
     .run();
