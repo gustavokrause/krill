@@ -13,6 +13,32 @@ export type StuckEntry = {
   maxSec: number;
 };
 
+// Mirrors server-side types from @/lib/limits-view — re-declared to keep the
+// client bundle free of server-only DB imports.
+export type UsageLimitSource = "cli" | "oauth" | "estimate";
+export type GuardState = "normal" | "soft_paused" | "draining" | "stopped";
+
+export type LimitsViewBucket = {
+  scope: string;
+  model_bucket: string | null;
+  used_pct: number;
+  resets_at: number | null;
+  source: UsageLimitSource;
+};
+
+export type LimitsView = {
+  buckets: LimitsViewBucket[];
+  worst_pct: number | null;
+  session_pct: number | null;
+  weekly_pct: number | null;
+  guard_state: GuardState;
+  paused_by_limit: boolean;
+  limit_resume_at: number | null;
+  source: UsageLimitSource | null;
+  observed_at: number | null;
+  stale: boolean;
+};
+
 // Per-stage token rollup returned by GET /api/tasks/:id/usage. Mirrors the
 // server-side shape in @/lib/usage-rollups (re-declared here to keep the client
 // bundle free of server-only imports, matching how other responses are typed).
@@ -45,6 +71,7 @@ export type HealthSnapshot = {
   active_claim_ids: string[];
   tokens_today: number;
   spend_today?: { cost_usd: number; new_tokens: number; cache_read_tokens: number };
+  limits: LimitsView;
 };
 
 async function jsonFetch<T>(
