@@ -11,6 +11,7 @@ import {
 } from "./backoff";
 import { addBlocker, setTaskBlocked, setTodoPickerEnabled } from "./blockers";
 import { handleUsageLimitError } from "./limit-guard";
+import { computeLimitsView } from "@/lib/limits-view";
 import { appendAiComment } from "./comment";
 import { releaseClaim } from "./transition";
 import { runAiReview } from "./stages/ai-review";
@@ -84,19 +85,7 @@ export async function tick(stage: Stage): Promise<TickResult> {
         raw: err.raw.slice(0, 4000),
       };
       db.insert(usageLimits).values(row).run();
-      broadcast({
-        type: "limits.changed",
-        snapshot: [
-          {
-            source: row.source,
-            scope: row.scope,
-            model_bucket: row.model_bucket,
-            used_pct: row.used_pct,
-            resets_at: row.resets_at,
-            raw: row.raw,
-          },
-        ],
-      });
+      broadcast({ type: "limits.changed", view: computeLimitsView() });
       releaseClaim(err.taskId, workerId);
       handleUsageLimitError(err);
       console.warn(
