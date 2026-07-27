@@ -15,6 +15,7 @@ import { getBootId } from "@/workflow/boot-id";
 import { findStuckTasks } from "@/workflow/stuck";
 import { listenerCount } from "@/lib/sse";
 import { getSpendToday, getTokensToday } from "@/lib/usage-rollups";
+import { computeLimitsView, type LimitsView } from "@/lib/limits-view";
 
 export type HealthSnapshot = {
   db: { path: string; size_bytes: number | null };
@@ -38,6 +39,7 @@ export type HealthSnapshot = {
   // global "drain today" number shown in the footer.
   tokens_today: number;
   spend_today: { cost_usd: number; new_tokens: number; cache_read_tokens: number };
+  limits: LimitsView;
 };
 
 export function getHealth(): HealthSnapshot {
@@ -105,6 +107,7 @@ export function getHealth(): HealthSnapshot {
     active_claim_ids: liveClaims.map((r) => r.id),
     tokens_today: getTokensToday(),
     spend_today: getSpendToday(),
+    limits: computeLimitsView(),
   };
 }
 
