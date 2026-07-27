@@ -23,6 +23,7 @@ import {
   DEFAULT_WORKTREES_ROOT,
 } from "@/db/defaults";
 import { Settings } from "@/components/settings/settings";
+import { computeGuardAccuracy } from "@/lib/guard-accuracy";
 
 export const dynamic = "force-dynamic";
 
@@ -55,5 +56,6 @@ export default async function SettingsPage() {
       limit_resume_at: null,
     };
   }
-  return <Settings initial={row} />;
+  const accuracy = computeGuardAccuracy();
+  return <Settings initial={row} accuracy={accuracy} />;
 }

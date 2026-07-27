@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { GlobalConfig, StageEnabled } from "@/db/schema";
 import type { LimitsView } from "@/lib/limits-view";
+import type { GuardAccuracy } from "@/lib/guard-accuracy";
 import { MODEL_BY_STAGE } from "@/claude/model-map";
 import { api, type HealthSnapshot } from "@/lib/client/api";
 import { useEventSource } from "@/lib/client/use-event-source";
@@ -94,7 +95,7 @@ function humanBytes(n: number | null): string {
   return `${v.toFixed(v >= 100 ? 0 : 1)} ${units[i]}`;
 }
 
-export function Settings({ initial }: { initial: GlobalConfig }) {
+export function Settings({ initial, accuracy }: { initial: GlobalConfig; accuracy: GuardAccuracy }) {
   const [config, setConfig] = useState(initial);
   const [pauseConfirmOpen, setPauseConfirmOpen] = useState(false);
   const [health, setHealth] = useState<HealthSnapshot | null>(null);
@@ -495,6 +496,96 @@ export function Settings({ initial }: { initial: GlobalConfig }) {
                   </dd>
                 </div>
               </dl>
+            </Section>
+
+            <Section
+              id="guard-accuracy"
+              title="Guard accuracy"
+              description="Drift between estimate and measured, plus guard hit/miss counts over the trailing 7 days."
+            >
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                <div className="rounded border border-border bg-surface-2 px-3 py-2">
+                  <div className="font-mono text-[11px] text-text-2 truncate mb-1">pauses (7d)</div>
+                  <div className="font-mono text-2xl font-bold leading-none">
+                    {accuracy.pause_count > 0 ? accuracy.pause_count : "—"}
+                  </div>
+                  {accuracy.peak_pct !== null ? (
+                    <p className="font-mono text-[10px] text-text-3 mt-1">
+                      peak {Math.round(accuracy.peak_pct)}%
+                    </p>
+                  ) : null}
+                </div>
+                <div className="rounded border border-border bg-surface-2 px-3 py-2">
+                  <div className="font-mono text-[11px] text-text-2 truncate mb-1">guard misses</div>
+                  <div className="font-mono text-2xl font-bold leading-none">
+                    {accuracy.guard_miss_count > 0 ? accuracy.guard_miss_count : "—"}
+                  </div>
+                  <p className="font-mono text-[10px] text-text-3 mt-1">
+                    UsageLimitError while enabled
+                  </p>
+                </div>
+                <div className="rounded border border-border bg-surface-2 px-3 py-2">
+                  <div className="font-mono text-[11px] text-text-2 truncate mb-1">false pauses</div>
+                  <div className="font-mono text-2xl font-bold leading-none">
+                    {accuracy.false_pause_denom > 0
+                      ? `${accuracy.false_pause_count}/${accuracy.false_pause_denom}`
+                      : "—"}
+                  </div>
+                  <p className="font-mono text-[10px] text-text-3 mt-1">
+                    measured stayed &lt; soft % for 1h
+                  </p>
+                </div>
+              </div>
+              {accuracy.drift.length === 0 ||
+              accuracy.drift.every((b) => b.delta_pct === null) ? (
+                <p className="text-xs text-text-2">No paired samples yet.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs font-mono">
+                    <thead>
+                      <tr className="text-text-2 text-[11px]">
+                        <th className="text-left pb-1 pr-3">scope</th>
+                        <th className="text-left pb-1 pr-3">model</th>
+                        <th className="text-right pb-1 pr-3">measured</th>
+                        <th className="text-right pb-1 pr-3">estimate</th>
+                        <th className="text-right pb-1">delta</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {accuracy.drift.map((b, i) => (
+                        <tr key={i}>
+                          <td className="py-1 pr-3">{b.scope}</td>
+                          <td className="py-1 pr-3">{b.model_bucket ?? "—"}</td>
+                          <td className="text-right py-1 pr-3">
+                            {b.measured_avg_pct !== null
+                              ? `${b.measured_avg_pct.toFixed(1)}%`
+                              : "—"}
+                          </td>
+                          <td className="text-right py-1 pr-3">
+                            {b.estimate_avg_pct !== null
+                              ? `${b.estimate_avg_pct.toFixed(1)}%`
+                              : "—"}
+                          </td>
+                          <td
+                            className={cn(
+                              "text-right py-1",
+                              b.delta_pct !== null && b.delta_pct > 0
+                                ? "text-warning"
+                                : b.delta_pct !== null && b.delta_pct < 0
+                                  ? "text-success"
+                                  : "",
+                            )}
+                          >
+                            {b.delta_pct !== null
+                              ? `${b.delta_pct > 0 ? "+" : ""}${b.delta_pct.toFixed(1)}%`
+                              : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </Section>
 
             <Section
