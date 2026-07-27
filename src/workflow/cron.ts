@@ -5,6 +5,7 @@ import { db } from "@/db/client";
 import { globalConfig } from "@/db/schema";
 import { readUsageLimits } from "@/claude/limits";
 import { runEscalationResolver } from "./escalation";
+import { bootRecoverLimitGuard, restoreIfGuardOwned, startLimitGuard } from "./limit-guard";
 import { runStuckScanner } from "./stuck";
 import { runWorktreeGc } from "./worktree-gc";
 import { tick } from "./tick";
@@ -17,6 +18,7 @@ import type { Stage } from "./types";
 type CronState = {
   tasks: ScheduledTask[];
   inflight: Set<Stage>;
+  unsubLimitGuard?: () => void;
 };
 
 function getState(): CronState {
@@ -92,6 +94,9 @@ export function registerCrons(): void {
   markRegistered();
   const s = getState();
 
+  bootRecoverLimitGuard();
+  s.unsubLimitGuard = startLimitGuard();
+
   for (const { stage, expr } of SCHEDULES) {
     s.tasks.push(
       cron.schedule(expr, () => {
@@ -150,6 +155,7 @@ export function registerCrons(): void {
       if (isLimitsInflight()) return;
       setLimitsInflight(true);
       void readUsageLimits()
+        .then(() => { restoreIfGuardOwned(); })
         .catch((err) => console.error("[cron:limits] poll threw:", err))
         .finally(() => setLimitsInflight(false));
     }),
@@ -169,6 +175,10 @@ export function stopCrons(): void {
   for (const t of s.tasks) t.stop();
   s.tasks = [];
   s.inflight.clear();
+  if (s.unsubLimitGuard) {
+    s.unsubLimitGuard();
+    s.unsubLimitGuard = undefined;
+  }
   (
     globalThis as unknown as { __ai_auto_cron_registered?: boolean }
   ).__ai_auto_cron_registered = false;
