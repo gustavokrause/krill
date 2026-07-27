@@ -1,5 +1,9 @@
 import type { ScheduledTask } from "node-cron";
 import cron from "node-cron";
+import { eq } from "drizzle-orm";
+import { db } from "@/db/client";
+import { globalConfig } from "@/db/schema";
+import { readUsageLimits } from "@/claude/limits";
 import { runEscalationResolver } from "./escalation";
 import { runStuckScanner } from "./stuck";
 import { runWorktreeGc } from "./worktree-gc";
@@ -67,6 +71,22 @@ async function safeDispatch(stage: Stage): Promise<void> {
   }
 }
 
+function secsToCronExpr(sec: number): string {
+  if (sec < 60) return `*/${Math.max(1, sec)} * * * * *`;
+  const min = Math.max(1, Math.round(sec / 60));
+  return `0 */${min} * * * *`;
+}
+
+const LIMITS_INFLIGHT_KEY = "__ai_auto_limits_inflight";
+
+function isLimitsInflight(): boolean {
+  return (globalThis as Record<string, unknown>)[LIMITS_INFLIGHT_KEY] === true;
+}
+
+function setLimitsInflight(v: boolean): void {
+  (globalThis as Record<string, unknown>)[LIMITS_INFLIGHT_KEY] = v;
+}
+
 export function registerCrons(): void {
   if (isRegistered()) return;
   markRegistered();
@@ -116,12 +136,31 @@ export function registerCrons(): void {
     );
   }, 15_000);
 
+  // Usage-limits poll: cadence read from global_config.limit_poll_sec at
+  // register time. Inflight-guarded via process-global flag so overlapping
+  // polls don't stack up under a slow CLI/OAuth probe.
+  const limitCfg = db
+    .select({ limit_poll_sec: globalConfig.limit_poll_sec })
+    .from(globalConfig)
+    .where(eq(globalConfig.id, 1))
+    .get();
+  const pollSec = limitCfg?.limit_poll_sec ?? 120;
+  s.tasks.push(
+    cron.schedule(secsToCronExpr(pollSec), () => {
+      if (isLimitsInflight()) return;
+      setLimitsInflight(true);
+      void readUsageLimits()
+        .catch((err) => console.error("[cron:limits] poll threw:", err))
+        .finally(() => setLimitsInflight(false));
+    }),
+  );
+
   const shutdown = () => { stopCrons(); process.exit(0); };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
 
   console.log(
-    `[cron] registered ${s.tasks.length} schedules (6 stages + stuck scanner + escalation resolver + worktree GC)`,
+    `[cron] registered ${s.tasks.length} schedules (6 stages + stuck scanner + escalation resolver + worktree GC + limits poll)`,
   );
 }
 

@@ -48,6 +48,7 @@ export function cleanData(): void {
   db.run(sql`DELETE FROM followups`);
   db.run(sql`DELETE FROM tasks`);
   db.run(sql`DELETE FROM projects`);
+  db.run(sql`DELETE FROM usage_limits`);
 }
 
 export function createProject(opts: {

@@ -4,7 +4,19 @@ import type {
   Project,
   Task,
   TaskStatus,
+  UsageLimitSource,
 } from "@/db/schema";
+
+// Inline snapshot type — mirrors LimitRow in claude/limits.ts. Defined here
+// to avoid a circular import (limits.ts → sse.ts → events.ts → limits.ts).
+export type LimitSnapshot = Array<{
+  scope: string;
+  model_bucket: string | null;
+  used_pct: number;
+  resets_at: number | null;
+  source: UsageLimitSource;
+  raw: string | null;
+}>;
 
 export type WorkflowEvent =
   | { type: "task.updated"; task: Task }
@@ -25,7 +37,8 @@ export type WorkflowEvent =
       stage: string;
       ageSec: number;
       maxSec: number;
-    };
+    }
+  | { type: "limits.changed"; snapshot: LimitSnapshot };
 
 export type EventType = WorkflowEvent["type"];
 
@@ -38,4 +51,5 @@ export const EVENT_TYPES: EventType[] = [
   "project.deleted",
   "task.deleted",
   "task.stuck",
+  "limits.changed",
 ];
