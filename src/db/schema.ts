@@ -157,8 +157,59 @@ export const globalConfig = sqliteTable(
     })
       .notNull()
       .default(true),
+    limit_guard_enabled: integer("limit_guard_enabled", { mode: "boolean" })
+      .notNull()
+      .default(true),
+    limit_soft_pct: integer("limit_soft_pct").notNull().default(75),
+    limit_hard_pct: integer("limit_hard_pct").notNull().default(80),
+    limit_poll_sec: integer("limit_poll_sec").notNull().default(120),
+    limit_resume_grace_sec: integer("limit_resume_grace_sec")
+      .notNull()
+      .default(60),
+    // TRUE = the guard tripped the pause. Auto-resume checks this and refuses to
+    // clear a pause the human set (paused_by_limit=0 means don't touch).
+    paused_by_limit: integer("paused_by_limit", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    // Earliest epoch seconds at which the guard is allowed to clear its own pause.
+    // NULL when no auto-resume is armed.
+    limit_resume_at: integer("limit_resume_at"),
   },
   (t) => [check("global_config_singleton", sql`${t.id} = 1`)],
+);
+
+// -- USAGE LIMITS (append-only observation log) --
+
+export const USAGE_LIMIT_SOURCES = ["cli", "oauth", "estimate"] as const;
+export type UsageLimitSource = (typeof USAGE_LIMIT_SOURCES)[number];
+
+export const usageLimits = sqliteTable(
+  "usage_limits",
+  {
+    id: text("id").primaryKey(),
+    // Where the sample came from. 'cli' = `claude --usage`; 'oauth' = the
+    // Anthropic OAuth response; 'estimate' = derived locally from stage_usage.
+    source: text("source").notNull().$type<UsageLimitSource>(),
+    // Bucket key the pct applies to. Well-known values: 'session_5h', 'week',
+    // 'week_opus'. Free-form so we can add future buckets without a migration.
+    scope: text("scope").notNull(),
+    // Model this bucket refers to, when the bucket is model-scoped
+    // (e.g. 'opus'/'sonnet'/'fable'). NULL for session-level buckets.
+    model_bucket: text("model_bucket"),
+    used_pct: real("used_pct").notNull(),
+    resets_at: integer("resets_at"),
+    observed_at: integer("observed_at").notNull(),
+    // Original payload verbatim (json text) for forensics / re-derivation.
+    raw: text("raw"),
+  },
+  (t) => [
+    index("usage_limits_observed_idx").on(t.observed_at),
+    index("usage_limits_scope_idx").on(t.scope),
+    check(
+      "usage_limits_source_enum",
+      sql`${t.source} IN ('cli','oauth','estimate')`,
+    ),
+  ],
 );
 
 // -- PROJECTS --
@@ -471,3 +522,5 @@ export type StageUsage = typeof stageUsage.$inferSelect;
 export type NewStageUsage = typeof stageUsage.$inferInsert;
 export type ToolCall = typeof toolCalls.$inferSelect;
 export type NewToolCall = typeof toolCalls.$inferInsert;
+export type UsageLimit = typeof usageLimits.$inferSelect;
+export type NewUsageLimit = typeof usageLimits.$inferInsert;
