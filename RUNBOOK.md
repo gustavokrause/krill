@@ -238,6 +238,53 @@ activity elsewhere neither trips a brake early nor masks a real loop). At
 Human comments reset the counter. Comments authored by the manual "Solve
 with Sonnet" CTA are prefixed with `[manual] ` and excluded from the count.
 
+### Limit guard
+
+A pipeline-wide brake that pauses the fleet when Claude usage approaches the plan cap. Unlike the loop brake (which caps repeated AI auto-actions on one task), the limit guard operates across the whole fleet on a polling cadence. Auto-resume only restores what the guard itself paused — a human pause is never touched.
+
+**Guard states** (from `deriveGuardState`):
+
+| State | Trigger | Behavior |
+|---|---|---|
+| `normal` | `worst_pct < limit_soft_pct` | Nothing paused. |
+| `soft_paused` | `soft ≤ worst_pct < hard` | `stage_enabled.todo_picker = false` only — no new tasks picked; in-flight tasks keep running. |
+| `draining` | `worst_pct ≥ hard` and any claim still live | All `stage_enabled.*` off; `automation_enabled` stays on until active claims drop to zero, then flips off. |
+| `stopped` | `worst_pct ≥ hard` and no live claims (or immediate cut on `UsageLimitError`) | All `stage_enabled.*` off, `automation_enabled = false`, scheduled resume armed. |
+
+**Reading the footer meter** — `Session` and `Weekly` show fleet-worst % across relevant buckets; italic `~N%` means the source is `estimate` (local guess from `stage_usage`, never presented as authoritative); tooltip lists every bucket + source + age; the trailing chip is the guard-state label (see table above); when `stopped`, the chip shows a live countdown to `limit_resume_at`.
+
+**How to force resume:**
+
+```bash
+curl -X POST http://127.0.0.1:3000/api/limits/resume
+```
+
+Bypasses the time-elapsed and fresh-under-soft gates. Only clears a guard-owned pause (`paused_by_limit = true`); a human pause (`paused_by_limit = false`) is left alone.
+
+**How to force refresh:**
+
+```bash
+curl -X POST http://127.0.0.1:3000/api/limits/refresh
+```
+
+Re-runs the provider chain synchronously and broadcasts a `limits.changed` event. Useful right after resetting a rate limit or switching accounts.
+
+**How to disable the guard:**
+
+```bash
+curl -X PATCH http://127.0.0.1:3000/api/config \
+  -H 'content-type: application/json' \
+  -d '{"limit_guard_enabled": false}'
+```
+
+Also editable at `/settings#limit-guard`. With the guard off, `handleLimitsSnapshot` and `handleUsageLimitError` early-return — no pauses applied, no resumes attempted.
+
+**Where the usage source comes from** — provider chain (first non-null wins); source is stored on every `usage_limits` row and surfaced in the footer tooltip:
+
+1. **`cli`** — spawns `claude usage --json` when the CLI advertises the subcommand; capability is cached per process.
+2. **`oauth`** — reads `~/.claude/.credentials.json` first; on macOS falls back to the Keychain entry `security find-generic-password -s "Claude Code" -a "oauth"`; hits `https://claude.ai/api/account/usage_limits`.
+3. **`estimate`** — sums `stage_usage.cost_usd` over the last 5h and 7d against seed budgets; flagged in the UI as italic `~N%` so it is never mistaken for a measured value.
+
 ### Skip flags
 
 | Flag | Effect |
@@ -270,6 +317,10 @@ In priority order (first wins):
    resets on the first successful tick. State lives in memory.
 4. **Project `paused`** (`PATCH /api/projects/{id}`) — `claim()` joins
    projects and skips paused ones for every stage.
+5. **Limit guard** (`PATCH /api/config { "limit_guard_enabled": false }`) —
+   disables the automatic pause/resume ladder. Any pause already applied
+   is not undone by this flag alone; call `POST /api/limits/resume` to
+   clear a stuck guard-owned pause.
 
 Env-level (in `.env.local`, needs a restart — not automation switches):
 `KRILL_RESUME=0` disables session continuity (every stage spawn is cold);
@@ -603,6 +654,9 @@ through the old code path — recreate the task.
 │   │   │   ├── projects/...           — project CRUD
 │   │   │   ├── stream/route.ts        — SSE event channel
 │   │   │   ├── stream/count/route.ts  — live listener count
+│   │   │   ├── limits/route.ts        — usage snapshot GET
+│   │   │   ├── limits/refresh/route.ts — force-refresh provider chain POST
+│   │   │   ├── limits/resume/route.ts  — force-resume guard-owned pause POST
 │   │   │   ├── tasks/...              — task CRUD + transition + comments
 │   │   │   └── tick/route.ts          — manual tick endpoint
 │   │   ├── error.tsx                  — global error boundary
@@ -610,6 +664,10 @@ through the old code path — recreate the task.
 │   │   ├── page.tsx                   — board
 │   │   ├── projects/, settings/, tasks/  — page trees
 │   ├── claude/
+│   │   ├── limits.ts                  — usage probe: layered CLI → OAuth → estimate; batch-inserts to usage_limits; emits limits.changed
+│   │   ├── limits-cli.ts              — CLI provider: `claude usage --json`
+│   │   ├── limits-oauth.ts            — OAuth provider: credentials.json + macOS Keychain → claude.ai/api/account/usage_limits
+│   │   ├── limits-estimate.ts         — estimate provider: sums stage_usage.cost_usd over 5h/7d windows
 │   │   ├── errors.ts                  — RateLimitError, TimeoutError, McpAuthError
 │   │   ├── mcp-auth.ts                — per-invocation bearer tokens
 │   │   ├── mcp-config.ts              — generates --mcp-config JSON (task server; user MCP also loads unless KRILL_STRICT_MCP=1)
@@ -632,6 +690,7 @@ through the old code path — recreate the task.
 │   │   └── seed.ts                    — global_config singleton
 │   ├── git/                           — worktree/branch/merge/pr/diff/exec/errors
 │   ├── lib/
+│   │   ├── limits-view.ts             — shared LimitsView projection (/api/limits, health, SSE); deriveGuardState(); computeLimitsView()
 │   │   ├── api/                       — errors.ts, util.ts, validation.ts
 │   │   ├── client/                    — api.ts, use-event-source.ts
 │   │   ├── events.ts                  — WorkflowEvent union
@@ -640,6 +699,7 @@ through the old code path — recreate the task.
 │   │   ├── sse.ts                     — broadcast/subscribe singleton
 │   │   └── utils.ts                   — cn()
 │   └── workflow/
+│       ├── limit-guard.ts             — graduated limit brake: soft pause picker → drain in-flight → hard stop; boot recovery + force resume; never touches a human-set pause
 │       ├── backoff.ts                 — per-stage exponential backoff
 │       ├── boot.ts                    — module-load cron registration
 │       ├── claim.ts                   — atomic claim + paused-project filter
