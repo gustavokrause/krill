@@ -63,6 +63,7 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
   │   │   │   ├── tasks/
   │   │   │   ├── projects/
   │   │   │   ├── config/
+  │   │   │   ├── limits/      # GET snapshot; POST /refresh; POST /resume
   │   │   │   └── stream/      # SSE feed
   │   │   └── layout.tsx
   │   ├── components/          # Reusable UI (Radix + Tailwind)
@@ -71,6 +72,7 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
   │   │   ├── migrations/
   │   │   └── client.ts
   │   ├── workflow/
+  │   │   ├── limit-guard.ts   # graduated limit brake: soft pause picker → drain in-flight → hard stop; boot recovery + force resume; never touches a human-set pause
   │   │   ├── cron.ts          # node-cron registration + tick dispatch
   │   │   ├── tick.ts          # per-stage tick (claim → handler → release)
   │   │   ├── claim.ts         # atomic claim + transition primitives
@@ -91,6 +93,10 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
   │   │       ├── verify.ts    # VERIFYING: run the change, prove acceptance (Sonnet)
   │   │       └── publishing.ts
   │   ├── claude/
+  │   │   ├── limits.ts        # usage probe: layered CLI → OAuth → estimate; batch-inserts to usage_limits; emits limits.changed
+  │   │   ├── limits-cli.ts    # CLI provider: `claude usage --json`
+  │   │   ├── limits-oauth.ts  # OAuth provider: credentials.json + macOS Keychain → claude.ai/api/account/usage_limits
+  │   │   ├── limits-estimate.ts # estimate provider: sums stage_usage.cost_usd over 5h/7d windows
   │   │   ├── runner.ts        # spawn `claude` subprocess (adds --resume when resume.ts picks a session)
   │   │   ├── resume.ts        # session-continuity policy: V1 impl/verify retry + V2 impl→verify resume (same model, ≤300s); AI-REVIEW never resumes; KRILL_RESUME=0 kill switch
   │   │   ├── model-map.ts     # MODEL_BY_STAGE (per-stage model id)
@@ -103,6 +109,7 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
   │   │   ├── merge.ts         # fetch + merge-into + conflict detection
   │   │   └── pr.ts            # gh pr create / merge
   │   ├── lib/
+  │   │   ├── limits-view.ts   # shared LimitsView projection (/api/limits, health, SSE); deriveGuardState(); computeLimitsView()
   │   │   ├── sse.ts           # SSE broadcaster (in-memory pub/sub)
   │   │   ├── logger.ts
   │   │   ├── usage-rollups.ts # per-task / per-project / today token rollups
@@ -127,6 +134,13 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
     - max_ai_decline_cycles
     - publishing_solve_conflicts (bool)
     - escalation_auto_resolve (bool, default true)
+    - limit_guard_enabled (bool, default true)
+    - limit_soft_pct (int, default 75)
+    - limit_hard_pct (int, default 80)
+    - limit_poll_sec (int, default 120)
+    - limit_resume_grace_sec (int, default 60)
+    - paused_by_limit (bool — guard-owned pause marker; a human pause has this false so the guard never undoes it)
+    - limit_resume_at (int|null — earliest epoch seconds the guard may auto-resume itself)
 
   projects
     - id (uuid)
@@ -182,6 +196,10 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
     - cost_usd, num_turns, duration_ms, created_at
     - resumed (0|1 — this run resumed a prior session; the A/B marker for session continuity: GROUP BY resumed vs tokens/cost)
     - (escalation-resolver runs are recorded under stage "ai_review")
+
+  usage_limits (append-only observation log)
+    - id, source (enum: cli|oauth|estimate), scope, model_bucket
+    - used_pct (real), resets_at (int|null), observed_at, raw
 
   tool_calls (append-only — one row per krill MCP tool call; shows the bookkeeping share of a stage's turns)
 
@@ -256,6 +274,18 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
   The cron cadence above is the fallback, not the pacer; the kicked tick
   carries all the normal guards (claim, stage_enabled, backoff).
 
+  **Limit guard.** A separate cron slot (`limit_poll_sec`, default 120s)
+  calls `readUsageLimits()`, batch-inserts one `usage_limits` row per
+  bucket, and broadcasts `limits.changed`. The subscription installed by
+  `startLimitGuard()` runs the ladder on every event; sits above the
+  per-stage `tick()` guards, so a hard pause takes effect before the next
+  tick fires. `tick()` catches `UsageLimitError` and calls
+  `handleUsageLimitError()` for immediate hard stop, skipping the drain
+  wait since the throwing task already released its claim.
+  `bootRecoverLimitGuard()` runs once at cron registration to clear a
+  stale guard pause left by a prior process if its reset time already
+  elapsed.
+
 
 -- STAGE HANDLER PATTERN --
 
@@ -323,6 +353,7 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
       - task.transitioned
       - comment.appended
       - config.changed
+      - limits.changed — new usage snapshot observed, or guard state changed. Payload is the full `LimitsView` (buckets, session/weekly %, guard state, `paused_by_limit`, `limit_resume_at`, `stale`).
   - In-memory pub/sub (`EventEmitter`). Single-process so no cross-process bus needed.
   - UI client uses `EventSource` to subscribe and update local store.
   - SSE works over LAN to phones/tablets — same EventSource API on mobile browsers.
@@ -353,6 +384,8 @@ Implements the workflow defined in OVERVIEW.md. Single-user, local-first.
       - stage_enabled (per-stage toggles, incl. verify)
       - per-project paused (toggle per project)
       - rate-limit backoff state (read-only)
+      - Limit guard settings (`limit_guard_enabled`, `limit_soft_pct`, `limit_hard_pct`, `limit_poll_sec`, `limit_resume_grace_sec`)
+      - Force resume (`POST /api/limits/resume`) and force refresh (`POST /api/limits/refresh`) — respect the human-vs-guard pause invariant
   - Toggling writes to global_config; SSE notifies UI; next cron tick reads new state.
 
 

@@ -5,7 +5,6 @@ import type {
   Task,
   TaskStatus,
 } from "@/db/schema";
-import type { LimitsView } from "@/lib/limits-view";
 
 export type StuckEntry = {
   taskId: string;
@@ -193,6 +192,10 @@ export const api = {
 
   getHealth: () => jsonFetch<HealthSnapshot>("/api/health"),
   getLimits: () => jsonFetch<LimitsView>("/api/limits"),
+  resumeLimits: () =>
+    jsonFetch<{ restored: boolean; view: LimitsView }>("/api/limits/resume", {
+      method: "POST",
+    }).then((r) => r.view),
 
   getConfig: () =>
     jsonFetch<{ config: GlobalConfig }>("/api/config").then((r) => r.config),
