@@ -31,9 +31,10 @@ import {
   type Project,
   type Task,
   type TaskStatus,
+  type StageEnabled,
   TASK_STATUSES,
 } from "@/db/schema";
-import { api, type HealthSnapshot, type StuckEntry } from "@/lib/client/api";
+import { api, type HealthSnapshot, type LimitsView, type StuckEntry } from "@/lib/client/api";
 import { useEventSource } from "@/lib/client/use-event-source";
 import { BlockersBanner } from "@/components/board/blockers-banner";
 import { useToast } from "@/components/ui/toast";
@@ -166,6 +167,14 @@ const DROPPABLE_STATUSES: Set<TaskStatus> = new Set(
   Object.values(DRAG_ALLOWED_TO).flat(),
 );
 
+const STAGE_OF_STATUS: Partial<Record<TaskStatus, keyof StageEnabled>> = {
+  PLANNING: "planning",
+  IMPLEMENTING: "implementing",
+  "AI-REVIEW": "ai_review",
+  VERIFYING: "verify",
+  PUBLISHING: "publishing",
+};
+
 function ownerOf(status: TaskStatus): Owner | null {
   if (HUMAN_STATUSES.has(status)) return "human";
   if (AI_STATUSES.has(status)) return "ai";
@@ -221,11 +230,55 @@ function MasterKillSwitch({
   enabled,
   saving,
   onToggle,
+  limits,
+  onResumeLimits,
 }: {
   enabled: boolean;
   saving: boolean;
   onToggle: () => Promise<void> | void;
+  limits?: LimitsView | null;
+  onResumeLimits?: () => Promise<void>;
 }) {
+  const guardOwned = limits?.paused_by_limit ?? false;
+
+  if (guardOwned) {
+    const isStopped = limits?.guard_state === "stopped";
+    const tone = isStopped
+      ? { dot: "bg-danger", text: "text-danger", hover: "hover:bg-danger/5 hover:border-danger/40" }
+      : { dot: "bg-warning", text: "text-warning", hover: "hover:bg-warning/5 hover:border-warning/40" };
+    const pct = Math.round(limits?.worst_pct ?? 0);
+    const resumeAt = limits?.limit_resume_at;
+    const resumeTime = resumeAt
+      ? new Date(resumeAt * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : null;
+    const description =
+      `Guard holds the pause (usage at ${pct}%).` +
+      (resumeTime ? ` Resumes automatically at ${resumeTime}.` : "") +
+      " Click to override now — the guard will re-engage on the next threshold crossing.";
+
+    return (
+      <Tooltip title="Paused by guard" description={description} side="bottom">
+        <button
+          type="button"
+          onClick={() => onResumeLimits?.()}
+          disabled={saving}
+          aria-label="Paused by guard — click to override"
+          className={cn(
+            "inline-flex items-center gap-1.5 h-9 px-2 sm:px-2.5 rounded border border-border bg-surface",
+            "text-xs font-mono font-medium uppercase tracking-wide leading-none",
+            "focus:outline-none focus-visible:ring-1 focus-visible:ring-primary",
+            "disabled:opacity-50",
+            tone.text,
+            tone.hover,
+          )}
+        >
+          <span aria-hidden="true" className={cn("h-1.5 w-1.5 rounded-full", tone.dot)} />
+          <span className="hidden sm:inline">Guard</span>
+        </button>
+      </Tooltip>
+    );
+  }
+
   const label = enabled ? "Pause automation" : "Resume automation";
   const hint = enabled
     ? "Master kill switch. Click to pause every stage (handlers exit no-op). In-flight subprocesses keep running until they finish."
@@ -590,6 +643,22 @@ export function Board({
       return next.size === prev.size ? prev : next;
     });
   }, [tasks]);
+
+  const handleResumeLimits = useCallback(async () => {
+    setAutomationSaving(true);
+    try {
+      await api.resumeLimits();
+      toast.push({ variant: "success", title: "Guard resumed" });
+    } catch (err) {
+      toast.push({
+        variant: "danger",
+        title: "Resume failed",
+        description: (err as Error).message,
+      });
+    } finally {
+      setAutomationSaving(false);
+    }
+  }, [toast]);
 
   const toggleAutomation = useCallback(async () => {
     const next = !config.automation_enabled;
@@ -1050,6 +1119,17 @@ export function Board({
     return map;
   }, [tasks]);
 
+  const quotaHeld = useMemo(() => {
+    const limits = health?.limits ?? null;
+    if (!limits?.paused_by_limit) return () => false;
+    return (status: TaskStatus): boolean => {
+      const key = STAGE_OF_STATUS[status];
+      if (!key) return false;
+      if (limits.guard_state === "stopped") return true;
+      return (config.stage_enabled as StageEnabled)[key] === false;
+    };
+  }, [health?.limits, config.stage_enabled]);
+
   const filteredProjectId =
     projectFilter === "all" ? null : bySlug.get(projectFilter)?.id ?? null;
 
@@ -1116,6 +1196,8 @@ export function Board({
           enabled={config.automation_enabled}
           saving={automationSaving}
           onToggle={toggleAutomation}
+          limits={health?.limits ?? null}
+          onResumeLimits={handleResumeLimits}
         />
         <Select value={termWindow} onValueChange={(v) => setTermWindow(v as TermWindow)}>
           <SelectTrigger className="h-9 w-[128px]" title="Done / Canceled time window (by finish date)">
@@ -1156,6 +1238,7 @@ export function Board({
                 isDraggable={DRAG_ALLOWED_TO[t.status].length > 0}
                 selected={selectedIds.has(t.id)}
                 onShiftSelect={toggleSelection}
+                waitingOnQuota={quotaHeld(t.status) ? { resumeAt: health!.limits.limit_resume_at } : undefined}
                 dependencies={t.depends_on
                   .map((id) => byTaskId.get(id))
                   .filter((d): d is Task => d != null)
@@ -1310,6 +1393,7 @@ export function Board({
                                 isDraggable={DRAG_ALLOWED_TO[t.status].length > 0}
                                 selected={selectedIds.has(t.id)}
                                 onShiftSelect={toggleSelection}
+                                waitingOnQuota={quotaHeld(t.status) ? { resumeAt: health!.limits.limit_resume_at } : undefined}
                                 dependencies={t.depends_on
                                   .map((id) => byTaskId.get(id))
                                   .filter((d): d is Task => d != null)
@@ -1351,6 +1435,7 @@ export function Board({
                         isDraggable={DRAG_ALLOWED_TO[t.status].length > 0}
                         selected={selectedIds.has(t.id)}
                         onShiftSelect={toggleSelection}
+                        waitingOnQuota={quotaHeld(t.status) ? { resumeAt: health!.limits.limit_resume_at } : undefined}
                         dependencies={t.depends_on
                           .map((id) => byTaskId.get(id))
                           .filter((d): d is Task => d != null)
