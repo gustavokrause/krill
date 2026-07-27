@@ -10,6 +10,7 @@ import {
   resetBackoff,
 } from "./backoff";
 import { addBlocker, setTaskBlocked, setTodoPickerEnabled } from "./blockers";
+import { handleUsageLimitError } from "./limit-guard";
 import { appendAiComment } from "./comment";
 import { releaseClaim } from "./transition";
 import { runAiReview } from "./stages/ai-review";
@@ -97,6 +98,7 @@ export async function tick(stage: Stage): Promise<TickResult> {
         ],
       });
       releaseClaim(err.taskId, workerId);
+      handleUsageLimitError(err);
       console.warn(
         `[tick:${stage}] usage-limit exhausted ${err.taskId}: resets_at=${err.resetsAt ?? "unknown"}`,
       );

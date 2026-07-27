@@ -83,14 +83,28 @@ function clearAllBackoff(): void {
 
 const originalRunner = getRunner();
 
+function resetGuardConfig(): void {
+  db.update(tables.globalConfig)
+    .set({
+      automation_enabled: true,
+      stage_enabled: { todo_picker: true, planning: true, implementing: true, ai_review: true, verify: true, publishing: true },
+      paused_by_limit: false,
+      limit_resume_at: null,
+    })
+    .where(eq(tables.globalConfig.id, 1))
+    .run();
+}
+
 before(() => {
   cleanData();
   clearAllBackoff();
+  resetGuardConfig();
 });
 
 beforeEach(() => {
   cleanData();
   clearAllBackoff();
+  resetGuardConfig();
 });
 
 after(() => {
@@ -170,13 +184,14 @@ test("tick: subsequent tick after usage_limit returns no_task (not backoff_activ
   const first = await tick("planning");
   assert.ok(first.ran === false && first.reason === "usage_limit");
 
-  // No backoff was set, so second tick proceeds — but task is in PLANNING
-  // (claim released, not blocked), so it picks the task again and hits the runner again.
-  // This proves backoff was NOT bumped (if it were, we'd get backoff_active).
+  // The limit guard fires on the first UsageLimitError and sets automation_enabled=false.
+  // The second tick must therefore NOT be backoff_active — that would mean the rate-limit
+  // backoff was bumped, which is wrong for a usage-limit hit. Guard-stopped results
+  // (automation_disabled / stage_disabled) are fine: the guard is working as intended.
   const second = await tick("planning");
   assert.ok(
-    second.ran === false && second.reason === "usage_limit",
-    `expected usage_limit on second tick, got ${second.ran === false ? second.reason : "ran"}`,
+    second.ran === false && second.reason !== "backoff_active",
+    `expected non-backoff result on second tick, got ${second.ran === false ? second.reason : "ran"}`,
   );
   assert.equal(snapshotBackoff().planning, undefined, "still no backoff after second hit");
 });
