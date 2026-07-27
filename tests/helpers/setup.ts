@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import * as schema from "@/db/schema";
 import * as defaults from "@/db/defaults";
@@ -49,6 +49,18 @@ export function cleanData(): void {
   db.run(sql`DELETE FROM tasks`);
   db.run(sql`DELETE FROM projects`);
   db.run(sql`DELETE FROM usage_limits`);
+  // Reset mutable global_config fields to defaults so tests don't bleed state
+  // into one another. The row stays; only fields tests may modify are reset.
+  db.update(schema.globalConfig)
+    .set({
+      automation_enabled: true,
+      stage_enabled: defaults.DEFAULT_STAGE_ENABLED,
+      api_error_backoff: defaults.DEFAULT_API_ERROR_BACKOFF,
+      paused_by_limit: false,
+      limit_resume_at: null,
+    })
+    .where(eq(schema.globalConfig.id, 1))
+    .run();
 }
 
 export function createProject(opts: {
