@@ -2,11 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { Gauge } from "lucide-react";
-import { api } from "@/lib/client/api";
 import type { LimitsView, GuardState } from "@/lib/client/api";
-import { useEventSource } from "@/lib/client/use-event-source";
+import { useLimits } from "@/lib/client/use-limits";
 
-type Snap = { limits: LimitsView; active_claims: number };
 type ToneKey = "text-2" | "warning" | "danger";
 
 const TEXT_CLS: Record<ToneKey, string> = {
@@ -88,51 +86,19 @@ function buildTitle(limits: LimitsView, nowSec: number): string {
 }
 
 export function LimitsMeter() {
-  const [snap, setSnap] = useState<Snap | null>(null);
+  const { limits, activeClaims: active_claims } = useLimits();
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
 
   useEffect(() => {
-    let cancelled = false;
-    const tick = () =>
-      api
-        .getHealth()
-        .then((h) => {
-          if (!cancelled)
-            setSnap({ limits: h.limits, active_claims: h.active_claims });
-        })
-        .catch(() => {
-          /* keep last */
-        });
-    tick();
-    const id = setInterval(tick, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, []);
-
-  useEventSource({
-    "limits.changed": (event) => {
-      if (event.type === "limits.changed") {
-        setSnap((prev) =>
-          prev ? { ...prev, limits: event.view as unknown as LimitsView } : null,
-        );
-      }
-    },
-  });
-
-  useEffect(() => {
-    if (!snap?.limits.paused_by_limit || !snap?.limits.limit_resume_at) return;
+    if (!limits?.paused_by_limit || !limits?.limit_resume_at) return;
     const id = setInterval(
       () => setNowSec(Math.floor(Date.now() / 1000)),
       1000,
     );
     return () => clearInterval(id);
-  }, [snap?.limits.paused_by_limit, snap?.limits.limit_resume_at]);
+  }, [limits?.paused_by_limit, limits?.limit_resume_at]);
 
-  if (snap === null) return null;
-
-  const { limits, active_claims } = snap;
+  if (limits === null) return null;
   const isEst = limits.source === "estimate";
 
   const renderPct = (pct: number | null) => {
