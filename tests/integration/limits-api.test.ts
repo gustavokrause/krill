@@ -7,7 +7,7 @@ import { POST as postResume } from "@/app/api/limits/resume/route";
 import { POST as postRefresh } from "@/app/api/limits/refresh/route";
 import { GET as getHealth } from "@/app/api/health/route";
 import { NextRequest } from "next/server";
-import { readUsageLimits, __setProviders } from "@/claude/limits";
+import { __setProviders } from "@/claude/limits";
 import type { LimitProvider } from "@/claude/limits";
 import { subscribe } from "@/lib/sse";
 import type { LimitsView } from "@/lib/limits-view";

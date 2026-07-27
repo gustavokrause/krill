@@ -82,7 +82,7 @@ async function jsonFetch<T>(
     ...init,
     headers: {
       "content-type": "application/json",
-      ...(init?.headers ?? {}),
+      ...init?.headers,
     },
   });
   if (!res.ok) {

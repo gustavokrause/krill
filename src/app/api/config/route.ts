@@ -60,19 +60,19 @@ export async function PATCH(req: NextRequest) {
 
     const stage_enabled: StageEnabled = {
       ...current.stage_enabled,
-      ...(body.stage_enabled ?? {}),
+      ...body.stage_enabled,
     };
     const cron_cadence: StageNumberMap = {
       ...current.cron_cadence,
-      ...(body.cron_cadence ?? {}),
+      ...body.cron_cadence,
     };
     const max_stage_duration: StageNumberMap = {
       ...current.max_stage_duration,
-      ...(body.max_stage_duration ?? {}),
+      ...body.max_stage_duration,
     };
     const claim_ttl: StageNumberMap = {
       ...current.claim_ttl,
-      ...(body.claim_ttl ?? {}),
+      ...body.claim_ttl,
     };
     const api_error_backoff: BackoffConfig =
       body.api_error_backoff ?? current.api_error_backoff;
