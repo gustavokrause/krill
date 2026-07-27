@@ -28,6 +28,8 @@ export type GuardState = "normal" | "soft_paused" | "draining" | "stopped";
 export type LimitsView = {
   buckets: LimitsViewBucket[];
   worst_pct: number | null;
+  session_pct: number | null;
+  weekly_pct: number | null;
   guard_state: GuardState;
   paused_by_limit: boolean;
   limit_resume_at: number | null;
@@ -35,6 +37,12 @@ export type LimitsView = {
   observed_at: number | null;
   stale: boolean;
 };
+
+export function scopeCategory(scope: string): "session" | "weekly" | "other" {
+  if (scope === "session_5h") return "session";
+  if (scope.startsWith("week")) return "weekly";
+  return "other";
+}
 
 /** A row is fleet-relevant if model_bucket is null (session-level) or its
  *  value contains a family present in MODEL_BY_STAGE. */
@@ -88,6 +96,17 @@ export function computeLimitsView(nowSec?: number): LimitsView {
     worst_pct = Math.max(...relevant.map((r) => r.used_pct));
   }
 
+  const sessionRows = relevant.filter((r) => scopeCategory(r.scope) === "session");
+  const weeklyRows = relevant.filter((r) => scopeCategory(r.scope) === "weekly");
+  const session_pct =
+    sessionRows.length > 0
+      ? Math.max(...sessionRows.map((r) => r.used_pct))
+      : null;
+  const weekly_pct =
+    weeklyRows.length > 0
+      ? Math.max(...weeklyRows.map((r) => r.used_pct))
+      : null;
+
   const limitPollSec = cfg?.limit_poll_sec ?? 120;
   const stale =
     observed_at === null || now - observed_at > 2 * limitPollSec;
@@ -109,6 +128,8 @@ export function computeLimitsView(nowSec?: number): LimitsView {
       source: r.source,
     })),
     worst_pct,
+    session_pct,
+    weekly_pct,
     guard_state,
     paused_by_limit: cfg?.paused_by_limit ?? false,
     limit_resume_at: cfg?.limit_resume_at ?? null,

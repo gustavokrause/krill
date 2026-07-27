@@ -47,6 +47,7 @@ export function useEventSource(handlers: Handlers): void {
       "project.deleted",
       "task.deleted",
       "task.stuck",
+      "limits.changed",
     ];
     for (const t of types) wrap(t);
 
