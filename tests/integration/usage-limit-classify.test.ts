@@ -6,7 +6,7 @@ import { snapshotBackoff, resetBackoff } from "@/workflow/backoff";
 import { tick } from "@/workflow/tick";
 import { setRunner, getRunner } from "@/claude";
 import type { RunnerInput, RunnerOutput } from "@/claude/runner";
-import { now, type Stage } from "@/workflow/types";
+import { type Stage } from "@/workflow/types";
 import { eq } from "drizzle-orm";
 
 // ── Group A: classifyUsageLimit() unit fixtures ────────────────────────────

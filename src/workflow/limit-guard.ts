@@ -1,6 +1,6 @@
 import { eq, gt } from "drizzle-orm";
 import { db } from "@/db/client";
-import { blockers, globalConfig, tasks, type StageEnabled } from "@/db/schema";
+import { globalConfig, tasks, type StageEnabled } from "@/db/schema";
 import type { UsageLimitError } from "@/claude/errors";
 import { broadcast } from "@/lib/sse";
 import { subscribe } from "@/lib/sse";

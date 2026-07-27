@@ -1,0 +1,19 @@
+{
+  "plugins": ["typescript", "react", "unicorn", "import", "jsx-a11y", "nextjs"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "env": {
+    "browser": true,
+    "node": true,
+    "es2024": true
+  },
+  "ignorePatterns": [".next", "node_modules", "data", "graphify-out", "src/db/migrations", "*.tsbuildinfo"],
+  "rules": {
+    "react/react-in-jsx-scope": "off",
+    "eslint/no-underscore-dangle": "off",
+    "jsx-a11y/label-has-associated-control": "warn",
+    "jsx-a11y/prefer-tag-over-role": "warn"
+  }
+}

@@ -46,7 +46,6 @@ beforeEach(() => cleanData());
 after(() => { for (const d of tmps) rmSync(d, { recursive: true, force: true }); });
 
 test("autoFinishEligible needs BOTH task.auto_publish and project.allow_auto_finish", () => {
-  const base = { auto_publish: false } as any;
   assert.equal(autoFinishEligible({ auto_publish: false } as any, { allow_auto_finish: true } as any), false);
   assert.equal(autoFinishEligible({ auto_publish: true } as any, { allow_auto_finish: false } as any), false);
   assert.equal(autoFinishEligible({ auto_publish: true } as any, { allow_auto_finish: true } as any), true);
