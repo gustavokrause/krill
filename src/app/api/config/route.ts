@@ -5,8 +5,13 @@ import {
   DEFAULT_API_ERROR_BACKOFF,
   DEFAULT_CLAIM_TTL,
   DEFAULT_CRON_CADENCE,
-  DEFAULT_MAX_AI_DECLINE_CYCLES,
   DEFAULT_ESCALATION_AUTO_RESOLVE,
+  DEFAULT_LIMIT_GUARD_ENABLED,
+  DEFAULT_LIMIT_HARD_PCT,
+  DEFAULT_LIMIT_POLL_SEC,
+  DEFAULT_LIMIT_RESUME_GRACE_SEC,
+  DEFAULT_LIMIT_SOFT_PCT,
+  DEFAULT_MAX_AI_DECLINE_CYCLES,
   DEFAULT_MAX_STAGE_DURATION,
   DEFAULT_PUBLISHING_SOLVE_CONFLICTS,
   DEFAULT_STAGE_ENABLED,
@@ -18,7 +23,7 @@ import {
   type StageEnabled,
   type StageNumberMap,
 } from "@/db/schema";
-import { apiErrorResponse } from "@/lib/api/errors";
+import { ApiError, apiErrorResponse } from "@/lib/api/errors";
 import { configPatchSchema } from "@/lib/api/validation";
 import { broadcast } from "@/lib/sse";
 
@@ -38,6 +43,11 @@ function readOrInit() {
         max_ai_decline_cycles: DEFAULT_MAX_AI_DECLINE_CYCLES,
         publishing_solve_conflicts: DEFAULT_PUBLISHING_SOLVE_CONFLICTS,
         escalation_auto_resolve: DEFAULT_ESCALATION_AUTO_RESOLVE,
+        limit_guard_enabled: DEFAULT_LIMIT_GUARD_ENABLED,
+        limit_soft_pct: DEFAULT_LIMIT_SOFT_PCT,
+        limit_hard_pct: DEFAULT_LIMIT_HARD_PCT,
+        limit_poll_sec: DEFAULT_LIMIT_POLL_SEC,
+        limit_resume_grace_sec: DEFAULT_LIMIT_RESUME_GRACE_SEC,
       })
       .run();
     row = db.select().from(globalConfig).where(eq(globalConfig.id, 1)).get()!;
@@ -77,6 +87,12 @@ export async function PATCH(req: NextRequest) {
     const api_error_backoff: BackoffConfig =
       body.api_error_backoff ?? current.api_error_backoff;
 
+    const mergedSoft = body.limit_soft_pct ?? current.limit_soft_pct;
+    const mergedHard = body.limit_hard_pct ?? current.limit_hard_pct;
+    if (mergedSoft > mergedHard) {
+      throw new ApiError(400, "validation_failed", "limit_soft_pct must be <= limit_hard_pct");
+    }
+
     db.update(globalConfig)
       .set({
         worktrees_root: body.worktrees_root ?? current.worktrees_root,
@@ -93,6 +109,13 @@ export async function PATCH(req: NextRequest) {
           body.publishing_solve_conflicts ?? current.publishing_solve_conflicts,
         escalation_auto_resolve:
           body.escalation_auto_resolve ?? current.escalation_auto_resolve,
+        limit_guard_enabled:
+          body.limit_guard_enabled ?? current.limit_guard_enabled,
+        limit_soft_pct: mergedSoft,
+        limit_hard_pct: mergedHard,
+        limit_poll_sec: body.limit_poll_sec ?? current.limit_poll_sec,
+        limit_resume_grace_sec:
+          body.limit_resume_grace_sec ?? current.limit_resume_grace_sec,
       })
       .where(eq(globalConfig.id, 1))
       .run();

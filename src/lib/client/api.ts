@@ -191,6 +191,7 @@ export const api = {
     ).then((r) => r.stages),
 
   getHealth: () => jsonFetch<HealthSnapshot>("/api/health"),
+  getLimits: () => jsonFetch<LimitsView>("/api/limits"),
   resumeLimits: () =>
     jsonFetch<{ restored: boolean; view: LimitsView }>("/api/limits/resume", {
       method: "POST",
