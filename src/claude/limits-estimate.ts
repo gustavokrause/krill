@@ -3,11 +3,14 @@ import { db } from "@/db/client";
 import { stageUsage } from "@/db/schema";
 import type { LimitProvider, LimitRow } from "./limits";
 
-// Seed budget estimates for Claude Pro/Team. Rough baselines — update when
-// Anthropic publishes exact per-tier numbers. rows are always source='estimate'
-// and clearly flagged as a local guess, never presented as authoritative.
-const SESSION_5H_USD = 20.0; // ~5M tokens @ opus-class pricing
-const WEEK_USD = 150.0; // ~40M tokens over 7 days
+// Seed budget estimates. Rough baselines — update when Anthropic publishes
+// exact per-tier numbers. rows are always source='estimate' and clearly
+// flagged as a local guess, never presented as authoritative.
+// 2026-07-28: calibrated against the Claude app's own meters on this account
+// (krill estimate read 24%/35% while the app showed 18%/15%) — single-point
+// calibration, re-check when the plan changes.
+const SESSION_5H_USD = 26.0;
+const WEEK_USD = 345.0;
 
 function costInWindow(windowSec: number, nowEpoch: number): number {
   const cutoff = nowEpoch - windowSec;

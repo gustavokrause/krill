@@ -4,7 +4,7 @@ import { usageLimits, type UsageLimitSource } from "@/db/schema";
 import { broadcast } from "@/lib/sse";
 import { computeLimitsView } from "@/lib/limits-view";
 import { cliProvider } from "./limits-cli";
-import { oauthProvider } from "./limits-oauth";
+// limits-oauth.ts kept on disk for future research; see ladder note below.
 import { estimateProvider } from "./limits-estimate";
 
 // -- Types --
@@ -27,7 +27,12 @@ export type LimitProvider = {
 
 // -- Provider registry --
 
-let providers: LimitProvider[] = [cliProvider, oauthProvider, estimateProvider];
+// oauthProvider is OUT of the default ladder: its endpoint
+// (claude.ai/api/account/usage_limits) has no known documentation and the
+// keychain token it reads is API-scoped, not claude.ai-scoped — it 4xxs
+// silently on every probe while *looking* like a real source. Re-add only
+// once a verified machine-readable usage endpoint exists.
+let providers: LimitProvider[] = [cliProvider, estimateProvider];
 
 /** Test-only injection shim. Resets the provider chain. */
 export function __setProviders(p: LimitProvider[]): void {

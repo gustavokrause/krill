@@ -142,6 +142,10 @@ export function LimitsMeter() {
       <span className="mx-0.5">·</span>
       <span>Weekly</span>
       {renderPct(limits.weekly_pct)}
+      {isEst && (
+        // The tilde alone reads as truth at a glance — say it outright.
+        <span className="italic opacity-70">est.</span>
+      )}
       <span className="mx-0.5">·</span>
       <span className={TEXT_CLS[ct]}>{chip}</span>
     </span>
