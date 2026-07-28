@@ -8,6 +8,7 @@ import {
   taskListQuerySchema,
 } from "@/lib/api/validation";
 import { broadcast } from "@/lib/sse";
+import { estimateTaskTokens, stagesForTask } from "@/lib/token-estimate";
 import { now } from "@/workflow/types";
 
 export async function GET(req: NextRequest) {
@@ -79,8 +80,17 @@ export async function POST(req: NextRequest) {
             // (nothing to run) when the caller doesn't specify.
             skip_verify: body.skip_verify ?? body.mode !== "dev",
             acceptance: body.acceptance ?? null,
-      expected_impact: body.expected_impact ?? null,
-            est_tokens: body.est_tokens ?? null,
+            expected_impact: body.expected_impact ?? null,
+            // KR-39: krill owns est_tokens; body value discarded.
+            est_tokens: estimateTaskTokens({
+              projectId: project.id,
+              stages: stagesForTask({
+                skip_plan: body.skip_plan,
+                skip_ai_review: body.skip_ai_review,
+                skip_verify: body.skip_verify,
+                mode: body.mode,
+              }),
+            }),
             auto_publish: body.auto_publish,
             create_pr: body.create_pr ?? null,
             push_remote: body.push_remote ?? null,
