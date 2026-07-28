@@ -4,10 +4,13 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { LimitProvider, LimitRow } from "./limits";
 
-// OAuth usage endpoint on claude.ai. Returns 4xx when the scope isn't granted
-// or the account type doesn't expose machine-readable limits → provider returns
-// null and the orchestrator falls through to the estimator.
-const USAGE_ENDPOINT = "https://claude.ai/api/account/usage_limits";
+// The endpoint Claude Code's own /usage command calls (verified against the
+// CLI binary and live: returns session/weekly/per-model percentages matching
+// the app exactly). Undocumented and internal — it can change or vanish at any
+// time, which is fine: any failure returns null and the ladder falls through
+// to the estimator. Requires the cached Claude Code OAuth token plus the
+// oauth beta header.
+const USAGE_ENDPOINT = "https://api.anthropic.com/api/oauth/usage";
 
 function readCredentialsFile(): string | null {
   const credPath = join(homedir(), ".claude", ".credentials.json");
@@ -43,15 +46,22 @@ function extractAccessToken(raw: string): string | null {
 
 function readKeychainToken(): string | null {
   if (process.platform !== "darwin") return null;
-  try {
-    const out = execSync(
-      "security find-generic-password -s 'Claude Code' -a 'oauth' -w 2>/dev/null",
-      { encoding: "utf8", stdio: "pipe", timeout: 5_000 },
-    ).trim();
-    return out.length > 0 ? out : null;
-  } catch {
-    return null;
+  // Current Claude Code stores a JSON credentials blob under
+  // 'Claude Code-credentials'; older builds used 'Claude Code' + 'oauth'.
+  for (const cmd of [
+    "security find-generic-password -s 'Claude Code-credentials' -w 2>/dev/null",
+    "security find-generic-password -s 'Claude Code' -a 'oauth' -w 2>/dev/null",
+  ]) {
+    try {
+      const out = execSync(cmd, { encoding: "utf8", stdio: "pipe", timeout: 5_000 }).trim();
+      if (!out) continue;
+      // Blob may be JSON (extract) or a bare token.
+      return extractAccessToken(out) ?? (out.startsWith("{") ? null : out);
+    } catch {
+      // try next source
+    }
   }
+  return null;
 }
 
 function getAccessToken(): string | null {
@@ -63,17 +73,15 @@ function getAccessToken(): string | null {
   return readKeychainToken();
 }
 
-interface UsageEntry {
-  scope?: unknown;
-  bucket?: unknown;
-  model?: unknown;
-  model_bucket?: unknown;
-  used_pct?: unknown;
-  usedPct?: unknown;
-  used?: unknown;
-  limit?: unknown;
-  resets_at?: unknown;
-  resetsAt?: unknown;
+// Real response shape (2026-07): a `limits` array of
+//   { kind: "session" | "weekly_all" | "weekly_scoped", percent, resets_at: ISO,
+//     scope: null | { model: { display_name } } }
+// plus top-level five_hour/seven_day objects we use as a fallback if the
+// array ever disappears.
+function isoToEpoch(v: unknown): number | null {
+  if (typeof v !== "string") return null;
+  const t = Date.parse(v);
+  return Number.isNaN(t) ? null : Math.floor(t / 1000);
 }
 
 function parseResponse(body: string): LimitRow[] | null {
@@ -84,35 +92,57 @@ function parseResponse(body: string): LimitRow[] | null {
     return null;
   }
   if (!json || typeof json !== "object") return null;
+  const obj = json as Record<string, unknown>;
 
   const rows: LimitRow[] = [];
 
-  const arr = Array.isArray(json)
-    ? json
-    : Array.isArray((json as Record<string, unknown>).limits)
-      ? (json as Record<string, unknown>).limits
-      : Array.isArray((json as Record<string, unknown>).buckets)
-        ? (json as Record<string, unknown>).buckets
-        : null;
-
-  if (arr) {
-    for (const item of arr as unknown[]) {
+  if (Array.isArray(obj.limits)) {
+    for (const item of obj.limits as unknown[]) {
       if (!item || typeof item !== "object") continue;
-      const e = item as UsageEntry;
-      const scope = String(e.scope ?? e.bucket ?? "");
+      const e = item as Record<string, unknown>;
+      const kind = String(e.kind ?? "");
+      const scope = kind === "session" ? "session_5h" : kind.startsWith("weekly") ? "week" : null;
       if (!scope) continue;
-      const model_bucket = String(e.model ?? e.model_bucket ?? "") || null;
-      const rawPct = e.used_pct ?? e.usedPct;
-      const used_pct =
-        rawPct != null
-          ? Math.min(100, Number(rawPct))
-          : (() => {
-              const u = Number(e.used ?? 0);
-              const l = Number(e.limit ?? 0);
-              return l > 0 ? Math.min(100, (u / l) * 100) : 0;
-            })();
-      const resets_at = e.resets_at != null ? Number(e.resets_at) : e.resetsAt != null ? Number(e.resetsAt) : null;
-      rows.push({ scope, model_bucket, used_pct, resets_at, source: "oauth", raw: body });
+      let model_bucket: string | null = null;
+      const s = e.scope;
+      if (s && typeof s === "object") {
+        const m = (s as Record<string, unknown>).model;
+        if (m && typeof m === "object") {
+          const name = (m as Record<string, unknown>).display_name;
+          if (typeof name === "string" && name) model_bucket = name;
+        }
+      }
+      rows.push({
+        scope,
+        model_bucket,
+        used_pct: Math.min(100, Number(e.percent ?? 0)),
+        resets_at: isoToEpoch(e.resets_at),
+        source: "oauth",
+        raw: body,
+      });
+    }
+  }
+
+  // Fallback: top-level five_hour / seven_day utilization objects.
+  if (rows.length === 0) {
+    for (const [key, scope] of [
+      ["five_hour", "session_5h"],
+      ["seven_day", "week"],
+    ] as const) {
+      const b = obj[key];
+      if (b && typeof b === "object") {
+        const util = Number((b as Record<string, unknown>).utilization ?? NaN);
+        if (!Number.isNaN(util)) {
+          rows.push({
+            scope,
+            model_bucket: null,
+            used_pct: Math.min(100, util),
+            resets_at: isoToEpoch((b as Record<string, unknown>).resets_at),
+            source: "oauth",
+            raw: body,
+          });
+        }
+      }
     }
   }
 
@@ -130,6 +160,8 @@ export const oauthProvider: LimitProvider = {
       res = await fetch(USAGE_ENDPOINT, {
         headers: {
           Authorization: `Bearer ${token}`,
+          "anthropic-beta": "oauth-2025-04-20",
+          "anthropic-version": "2023-06-01",
           Accept: "application/json",
         },
         signal: AbortSignal.timeout(10_000),
@@ -150,3 +182,6 @@ export const oauthProvider: LimitProvider = {
     return parseResponse(body);
   },
 };
+
+// Test-only: parse a captured response body without hitting the network.
+export const __parseUsageResponse = parseResponse;
