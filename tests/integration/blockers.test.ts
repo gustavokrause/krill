@@ -16,6 +16,16 @@ test("classifyBlock: auth/login prompts classify, ordinary failures don't", () =
   assert.equal(classifyBlock("claude exited 1: some compile error"), null);
 });
 
+test("classifyBlock: auth vocabulary in a successful summary is not an auth wall", () => {
+  // KR-29 regression: a run *about* OAuth finished fine, its summary mentioned
+  // OAuth/authenticate as prose, and the old word-level regex paused the task.
+  assert.equal(classifyBlock("All done. 145/145 tests pass. Built the usage-limit probe with layered sources (CLI → OAuth token introspection → estimate)."), null);
+  assert.equal(classifyBlock("Added mcp-auth.ts covering the authenticate flow and OAuth patterns; tests green."), null);
+  // Genuine walls still classify.
+  assert.equal(classifyBlock("The Supabase MCP server needs to be authenticated before I can continue.")?.kind, "mcp_auth");
+  assert.equal(classifyBlock("Authorization required — visit https://example.com/oauth/authorize?c=1 to continue.")?.kind, "mcp_auth");
+});
+
 test("claim skips blocked tasks; clearing the block makes them claimable again", () => {
   const project = createProject({ slug: "BK", has_repo: true });
   const task = createTask(project, { name: "x", status: "PLANNING", mode: "non-dev" });

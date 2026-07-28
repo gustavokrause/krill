@@ -78,8 +78,26 @@ export class BlockedError extends Error {
   }
 }
 
-const MCP_AUTH_RE =
-  /\b(authoriz|oauth|Open this URL|Please run \/login|Not logged in|authenticate)\b/i;
+// Phrase-level signals only: a genuine auth wall *asks* the human for something
+// ("Open this URL to authorize…", "authentication required"). Bare vocabulary
+// ("OAuth", "authorize", "authenticate") appears in ordinary completion
+// summaries of auth-related work — a task about OAuth probing must not trip the
+// brake (KR-29 false positive: successful run paused as mcp_auth because its
+// summary said "OAuth"). is_error can't disambiguate — real auth walls also end
+// is_error:false — so the phrases are the only reliable signal.
+const MCP_AUTH_RE = new RegExp(
+  [
+    /Please run \/login|Not logged in/,
+    /Open (?:this|the following) URL/,
+    /(?:authentication|authorization) (?:is )?required/,
+    /needs? (?:to )?(?:be )?(?:re-?)?authenticat/,
+    /not authenticated/,
+    /https?:\/\/\S*\boauth\b\S*/,
+  ]
+    .map((r) => r.source)
+    .join("|"),
+  "i",
+);
 const LOGIN_RE = /\b(Please run \/login|Not logged in)\b/i;
 
 const USAGE_LIMIT_RE =
