@@ -149,28 +149,37 @@ function parseResponse(body: string): LimitRow[] | null {
   return rows.length > 0 ? rows : null;
 }
 
+async function fetchUsage(token: string): Promise<Response | null> {
+  try {
+    return await fetch(USAGE_ENDPOINT, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "anthropic-beta": "oauth-2025-04-20",
+        "anthropic-version": "2023-06-01",
+        Accept: "application/json",
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    return null;
+  }
+}
+
 export const oauthProvider: LimitProvider = {
   name: "oauth",
   async probe(_now: number): Promise<LimitRow[] | null> {
     const token = getAccessToken();
     if (!token) return null;
 
-    let res: Response;
-    try {
-      res = await fetch(USAGE_ENDPOINT, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "anthropic-beta": "oauth-2025-04-20",
-          "anthropic-version": "2023-06-01",
-          Accept: "application/json",
-        },
-        signal: AbortSignal.timeout(10_000),
-      });
-    } catch {
-      return null;
+    let res = await fetchUsage(token);
+    // The endpoint rate-limits per token and the quota is shared with every
+    // live Claude Code session's own /usage polling, so a 429 here is a lost
+    // lottery, not an outage. One short-delay retry wins most of them.
+    if (res === null || res.status === 429 || res.status >= 500) {
+      await new Promise((r) => setTimeout(r, 3_000));
+      res = await fetchUsage(token);
     }
-
-    if (!res.ok) return null;
+    if (res === null || !res.ok) return null;
 
     let body: string;
     try {

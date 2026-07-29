@@ -4,10 +4,9 @@ import { sql } from "drizzle-orm";
 import { cleanData, db, tables } from "../helpers/setup";
 import { readUsageLimits, __setProviders } from "@/claude/limits";
 import type { LimitProvider, LimitRow } from "@/claude/limits";
-import { estimateProvider } from "@/claude/limits-estimate";
 import { subscribe } from "@/lib/sse";
 
-function nullProvider(name: "cli" | "oauth" | "estimate"): LimitProvider {
+function nullProvider(name: "cli" | "oauth"): LimitProvider {
   return { name, probe: async () => null };
 }
 
@@ -24,7 +23,7 @@ beforeEach(() => {
 // -- Acceptance 1: each source's fixture payload → normalized rows in usage_limits --
 
 test("each source fixture writes normalized {scope, used_pct, resets_at, source} rows to usage_limits", async () => {
-  const fixtures: Array<{ source: "cli" | "oauth" | "estimate"; rows: LimitRow[] }> = [
+  const fixtures: Array<{ source: "cli" | "oauth"; rows: LimitRow[] }> = [
     {
       source: "cli",
       rows: [
@@ -57,13 +56,6 @@ test("each source fixture writes normalized {scope, used_pct, resets_at, source}
           source: "oauth",
           raw: '{"limits":[{"scope":"week","used_pct":55.5}]}',
         },
-      ],
-    },
-    {
-      source: "estimate",
-      rows: [
-        { scope: "session_5h", model_bucket: null, used_pct: 10, resets_at: null, source: "estimate", raw: null },
-        { scope: "week", model_bucket: null, used_pct: 5, resets_at: null, source: "estimate", raw: null },
       ],
     },
   ];
@@ -139,33 +131,31 @@ test("null-returning provider falls through to next provider", async () => {
   assert.equal(snap[0].source, "oauth");
 });
 
-// -- Acceptance 3: all sources unavailable → estimator rows, source='estimate', never empty --
+// -- Acceptance 3: real sources only — all unavailable → empty snapshot, nothing inserted --
 
-test("all sources unavailable → estimator rows, source=estimate, never empty", async () => {
-  __setProviders([nullProvider("cli"), nullProvider("oauth"), estimateProvider]);
+test("all sources unavailable → empty snapshot, no rows inserted, no fabricated estimate", async () => {
+  __setProviders([nullProvider("cli"), nullProvider("oauth")]);
 
   const snap = await readUsageLimits();
-  assert.ok(snap.length > 0, "estimate always returns rows");
-  assert.ok(snap.every((r) => r.source === "estimate"), "all rows source=estimate");
+  assert.equal(snap.length, 0, "no fabricated rows when every real source fails");
 
   const stored = db.select().from(tables.usageLimits).all();
-  assert.ok(stored.length > 0, "DB has rows");
-  assert.ok(stored.every((r) => r.source === "estimate"));
+  assert.equal(stored.length, 0, "nothing inserted — view holds last real snapshot");
 });
 
-test("all sources throw → estimator fallback, no throw escapes", async () => {
+test("all sources throw → empty snapshot, no throw escapes", async () => {
   const boom = (name: "cli" | "oauth"): LimitProvider => ({
     name,
     probe: async () => { throw new Error(`${name} dead`); },
   });
-  __setProviders([boom("cli"), boom("oauth"), estimateProvider]);
+  __setProviders([boom("cli"), boom("oauth")]);
 
   let snap: LimitRow[] | undefined;
   await assert.doesNotReject(async () => {
     snap = await readUsageLimits();
   });
-  assert.ok(snap !== undefined && snap.length > 0);
-  assert.ok(snap.every((r) => r.source === "estimate"));
+  assert.ok(snap !== undefined);
+  assert.equal(snap.length, 0);
 });
 
 // -- Acceptance 4: limits.changed fires exactly once per poll --
@@ -190,8 +180,8 @@ test("limits.changed fires exactly once per readUsageLimits() call", async () =>
   assert.equal(fired, 1, "limits.changed fires exactly once");
 });
 
-test("limits.changed not fired when no rows returned (all null, no estimator)", async () => {
-  __setProviders([nullProvider("cli"), nullProvider("oauth"), nullProvider("estimate")]);
+test("limits.changed not fired when no rows returned (all null)", async () => {
+  __setProviders([nullProvider("cli"), nullProvider("oauth")]);
 
   let fired = 0;
   const unsub = subscribe((ev) => {

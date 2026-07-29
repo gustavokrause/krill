@@ -5,7 +5,6 @@ import { broadcast } from "@/lib/sse";
 import { computeLimitsView } from "@/lib/limits-view";
 import { cliProvider } from "./limits-cli";
 import { oauthProvider } from "./limits-oauth";
-import { estimateProvider } from "./limits-estimate";
 
 // -- Types --
 
@@ -29,10 +28,12 @@ export type LimitProvider = {
 
 // oauthProvider hits the same endpoint Claude Code's /usage uses
 // (api.anthropic.com/api/oauth/usage — verified live 2026-07-28). It returns
-// the account's REAL meters (all usage counted, incl. non-fleet sessions),
-// which the estimator structurally cannot see. Undocumented, so it may break
-// without notice — any failure falls through to the estimator.
-let providers: LimitProvider[] = [cliProvider, oauthProvider, estimateProvider];
+// the account's REAL meters (all usage counted, incl. non-fleet sessions).
+// Real sources only — there is deliberately no local estimator: a probe
+// failure inserts nothing, so the view holds the last REAL snapshot (marked
+// stale) instead of fabricating a percentage. A fabricated 100% once parked
+// the whole fleet at a real 52%; blind-but-honest beats confidently wrong.
+let providers: LimitProvider[] = [cliProvider, oauthProvider];
 
 /** Test-only injection shim. Resets the provider chain. */
 export function __setProviders(p: LimitProvider[]): void {

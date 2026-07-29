@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { usageLimits, globalConfig, type StageEnabled, type UsageLimitSource } from "@/db/schema";
 import { MODEL_BY_STAGE } from "@/claude/model-map";
@@ -72,10 +72,13 @@ export function computeLimitsView(nowSec?: number): LimitsView {
 
   const cfg = db.select().from(globalConfig).where(eq(globalConfig.id, 1)).get();
 
-  // Latest observed_at group only.
+  // Latest observed_at group only. Legacy 'estimate' rows are ignored — the
+  // provider chain no longer writes them, and the guard must never act on a
+  // fabricated percentage left over from an old build.
   const latestAt = db
     .select({ observed_at: sql<number>`MAX(${usageLimits.observed_at})` })
     .from(usageLimits)
+    .where(ne(usageLimits.source, "estimate"))
     .get();
 
   const rows =
@@ -83,7 +86,12 @@ export function computeLimitsView(nowSec?: number): LimitsView {
       ? db
           .select()
           .from(usageLimits)
-          .where(eq(usageLimits.observed_at, latestAt.observed_at))
+          .where(
+            and(
+              eq(usageLimits.observed_at, latestAt.observed_at),
+              ne(usageLimits.source, "estimate"),
+            ),
+          )
           .all()
       : [];
 
