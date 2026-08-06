@@ -8,6 +8,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type NodeKind = "neutral" | "info" | "warning" | "success" | "danger" | "muted";
 
@@ -494,7 +495,7 @@ function PanZoomCanvas() {
   };
 
   return (
-    <div className="relative border border-border rounded bg-bg h-1/2 min-h-0 md:h-auto md:flex-1">
+    <div className="relative border border-border rounded bg-bg h-full min-h-0">
       <div
         ref={containerRef}
         className="absolute inset-0 overflow-hidden touch-none select-none"
@@ -553,7 +554,7 @@ function PanZoomCanvas() {
 
 function Legend() {
   return (
-    <div className="h-1/2 overflow-y-auto md:h-auto md:overflow-visible grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 text-xs text-text-2 pr-1">
+    <div className="h-full overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 text-xs text-text-2 pr-1 content-start">
       <div>
         <div className="font-medium text-text mb-1">Models</div>
         <ul className="space-y-0.5">
@@ -645,9 +646,19 @@ export function WorkflowModal() {
         size="large"
         className="!max-w-[calc(100vw-1rem)] md:!max-w-[calc(100vw-20vh)] !w-[calc(100vw-1rem)] md:!w-[calc(100vw-2rem)] !h-[calc(100vh-2rem)] sm:!h-[85vh]"
       >
-        <div className="flex-1 min-h-0 flex flex-col gap-3 px-6 py-4">
-          <PanZoomCanvas />
-          <Legend />
+        <div className="flex-1 min-h-0 px-6 py-4">
+          <Tabs defaultValue="diagram" className="h-full flex flex-col">
+            <TabsList>
+              <TabsTrigger value="diagram">Diagram</TabsTrigger>
+              <TabsTrigger value="legend">Legend</TabsTrigger>
+            </TabsList>
+            <TabsContent value="diagram" className="flex-1 min-h-0 pt-3">
+              <PanZoomCanvas />
+            </TabsContent>
+            <TabsContent value="legend" className="flex-1 min-h-0 pt-3">
+              <Legend />
+            </TabsContent>
+          </Tabs>
         </div>
       </DialogContent>
     </Dialog>
