@@ -1,12 +1,14 @@
 import { RestartSafety } from "./restart-safety";
 import { TokensToday } from "./tokens-today";
 import { LimitsMeter } from "./limits-meter";
+import { VersionChip } from "./version-chip";
 
 export function Footer({ lanUrls }: { lanUrls: string[] }) {
   return (
     <footer className="border-t border-border px-4 sm:px-6 lg:px-8 py-3 text-xs text-text-2 flex flex-wrap items-center gap-x-6 gap-y-1">
       <RestartSafety />
       <TokensToday />
+      <VersionChip />
       <LimitsMeter />
       <span>LAN trust model — anyone on this network can reach the app.</span>
       {lanUrls.length > 0 ? (

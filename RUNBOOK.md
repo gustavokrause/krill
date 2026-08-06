@@ -399,6 +399,28 @@ Stage logs go to stderr (the `npm start` / `npm run dev` terminal). Look for:
 
 Log rotation is not yet implemented (see phase 13 deferred).
 
+## Versioning & releases
+
+`package.json` `version` is the source of truth. The board footer shows it
+(`v0.2.0`) next to the cost chip, and — unless disabled — checks the upstream
+repo's tags and shows "vX.Y available" when the local copy is behind.
+
+- `KRILL_UPDATE_CHECK=0` disables the check: no external request is ever made
+  (the GitHub call sits behind the env gate, and it only runs on demand from
+  `/api/version` — never at boot). `KRILL_UPDATE_REPO=owner/repo` points a fork
+  at its own upstream.
+- The check compares semver tags (`vX.Y.Z`), cached in-process for 6h.
+
+### Cutting a release
+
+```bash
+npm version minor            # or patch/major — bumps package.json + commits + tags vX.Y.Z
+git push && git push --tags  # the tag is what remote clones compare against
+```
+
+That's the whole ceremony: the footer picks the new version up on the next
+build, and clones behind the new tag start showing the update notice.
+
 ## Common ops
 
 ### Create a project + first task end-to-end

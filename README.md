@@ -4,6 +4,9 @@
 
 # krill
 
+> Part of the [AI-fleet](https://github.com/gustavokrause/bridge/blob/main/docs/PITCH.md)
+> — krill is the executor layer. Start there for the full picture.
+
 Most AI agent tools make you define a goal, connect chat apps, configure a
 VPS, or manage cloud accounts. This one doesn't. You already have Claude Code
 installed. Point this at a repo, add tasks, and a safe staged pipeline runs
