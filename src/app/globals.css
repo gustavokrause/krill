@@ -4,6 +4,7 @@
 
 @layer base {
   :root {
+    color-scheme: light;
     --bg: 255 255 255;
     --surface: 255 255 255;
     --surface-2: 255 255 255;
@@ -23,6 +24,7 @@
   }
 
   [data-theme="dark"] {
+    color-scheme: dark;
     --bg: 20 20 20;
     --surface: 28 28 28;
     --surface-2: 38 38 38;
