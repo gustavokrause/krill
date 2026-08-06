@@ -603,7 +603,7 @@ function PolicyLegend() {
 }
 
 // Suggest a 2-char slug from the name: initials of each word (camelCase counts),
-// else the first two letters. e.g. "ClientApp"→AT, "Idea Project"→MV, "krill"→KR.
+// else the first two letters. e.g. "NightOwl"→NO, "Deep Harbor"→DH, "krill"→KR.
 function suggestSlug(name: string): string {
   const words = name
     .replace(/([a-z])([A-Z])/g, "$1 $2")
